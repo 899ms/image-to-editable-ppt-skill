@@ -260,6 +260,8 @@ python3 "$SKILL_DIR/scripts/crop_image_asset.py" \
 
 Coordinates use inches. The default widescreen page is 13.333 x 7.5 inches. Put every readable source string in `text_inventory`; validation treats it like required text.
 
+Objects may include `z_index` to control visual stacking. Lower values render first. Use this for layered rebuilds: cleaned full-slide background at `0`, native cards/lines at `20`, generated icon assets at `30`, and editable text at `40` or higher.
+
 ```json
 {
   "slide": {
@@ -277,6 +279,7 @@ Coordinates use inches. The default widescreen page is 13.333 x 7.5 inches. Put 
       "top": 2.4,
       "width": 2.2,
       "height": 1.6,
+      "z_index": 30,
       "alt": "Skill folder"
     }
   ],
@@ -292,7 +295,8 @@ Coordinates use inches. The default widescreen page is 13.333 x 7.5 inches. Put 
       "font": "PingFang SC",
       "bold": true,
       "color": "#111111",
-      "align": "left"
+      "align": "left",
+      "z_index": 40
     }
   ],
   "shapes": [
@@ -303,7 +307,8 @@ Coordinates use inches. The default widescreen page is 13.333 x 7.5 inches. Put 
       "width": 4.8,
       "height": 0,
       "stroke": "#e66b00",
-      "stroke_width": 3
+      "stroke_width": 3,
+      "z_index": 20
     },
     {
       "type": "rect",
@@ -313,7 +318,8 @@ Coordinates use inches. The default widescreen page is 13.333 x 7.5 inches. Put 
       "height": 0.9,
       "fill": "#fff2bf",
       "stroke": "#111111",
-      "stroke_width": 1
+      "stroke_width": 1,
+      "z_index": 20
     }
   ],
   "required_text": [
@@ -354,6 +360,7 @@ For a photo-background page, the image entry can be a full-slide no-text backgro
       "top": 0,
       "width": 13.333,
       "height": 7.5,
+      "z_index": 0,
       "alt": "Clean no-text photo background"
     }
   ],

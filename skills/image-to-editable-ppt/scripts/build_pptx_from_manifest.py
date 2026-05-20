@@ -178,14 +178,21 @@ def slide_xml(manifest):
     slide = manifest.get("slide", {})
     next_id = 2
     parts = []
-    for item in manifest.get("shapes", []):
-        parts.append(shape_xml(next_id, item))
-        next_id += 1
+    layered = []
+    for index, item in enumerate(manifest.get("shapes", [])):
+        layered.append((float(item.get("z_index", 100)), index, "shape", item, None))
     for rel_index, item in enumerate(manifest.get("images", []), start=1):
-        parts.append(image_xml(next_id, f"rId{rel_index + 1}", item))
-        next_id += 1
-    for item in manifest.get("text_boxes", []):
-        parts.append(text_box_xml(next_id, item))
+        layered.append((float(item.get("z_index", 200)), rel_index, "image", item, f"rId{rel_index + 1}"))
+    for index, item in enumerate(manifest.get("text_boxes", [])):
+        layered.append((float(item.get("z_index", 300)), index, "text", item, None))
+
+    for _z_index, _order, kind, item, rel_id in sorted(layered, key=lambda entry: (entry[0], entry[1])):
+        if kind == "shape":
+            parts.append(shape_xml(next_id, item))
+        elif kind == "image":
+            parts.append(image_xml(next_id, rel_id, item))
+        else:
+            parts.append(text_box_xml(next_id, item))
         next_id += 1
     return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
@@ -414,7 +421,7 @@ def render_preview(manifest, manifest_path, out_path):
             subprocess.run([convert, str(src), handle.name], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             return Image.open(handle.name).convert("RGBA")
 
-    for item in manifest.get("shapes", []):
+    def render_shape(item):
         box = [item.get("left", 0) * scale, item.get("top", 0) * scale, (item.get("left", 0) + item.get("width", 1)) * scale, (item.get("top", 0) + item.get("height", 1)) * scale]
         fill = preview_color(item.get("fill"))
         outline = preview_color(item.get("stroke", "#000000"))
@@ -425,16 +432,18 @@ def render_preview(manifest, manifest_path, out_path):
             draw.ellipse(box, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline, width=width)
         else:
             draw.rectangle(box, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline, width=width)
-    for item in manifest.get("images", []):
+
+    def render_image(item):
         src = Path(item["path"])
         if not src.is_absolute():
             src = base / src
         img = open_preview_image(src)
         if img is None:
-            continue
+            return
         img = img.resize((max(1, int(item.get("width", 1) * scale)), max(1, int(item.get("height", 1) * scale))))
         canvas.paste(img, (int(item.get("left", 0) * scale), int(item.get("top", 0) * scale)), img)
-    for item in manifest.get("text_boxes", []):
+
+    def render_text(item):
         size = int(float(item.get("font_size", 18)) * scale / 96 * 1.25)
         font_path = choose_preview_font(item.get("preview_font"))
         try:
@@ -461,6 +470,16 @@ def render_preview(manifest, manifest_path, out_path):
             spacing=4,
             align=item.get("align", "left") if item.get("align", "left") in ("left", "center", "right") else "left",
         )
+
+    layered = []
+    for index, item in enumerate(manifest.get("shapes", [])):
+        layered.append((float(item.get("z_index", 100)), index, render_shape, item))
+    for index, item in enumerate(manifest.get("images", [])):
+        layered.append((float(item.get("z_index", 200)), index, render_image, item))
+    for index, item in enumerate(manifest.get("text_boxes", [])):
+        layered.append((float(item.get("z_index", 300)), index, render_text, item))
+    for _z_index, _order, renderer, item in sorted(layered, key=lambda entry: (entry[0], entry[1])):
+        renderer(item)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     canvas.save(out_path)
 
