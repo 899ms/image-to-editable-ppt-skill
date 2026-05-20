@@ -1,0 +1,4 @@
+interface:
+  display_name: "Image to Editable PPT"
+  short_description: "Turn slide images into editable PPTX decks"
+  default_prompt: "Use $image-to-editable-ppt to convert this slide image into an editable PowerPoint with validation."
