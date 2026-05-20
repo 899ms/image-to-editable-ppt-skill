@@ -90,9 +90,9 @@ Use lightweight JSON files to keep the run auditable:
 - `pages/page_NNN/validation.json`: page validation output.
 - root `validation.json`: deck validation output.
 
-Do not record a visual asset as final unless the underlying source exists and has been visually inspected. For editable-first visual decomposition, the source should be a `$imagegen` clean base or `$imagegen` asset sheet, not a crop from the original source slide. For explicit visual-99 mode, source-region crops are allowed only as user-approved rasterization with source region coordinates. Every `images[*].path` in `manifest.json` must have an `asset_provenance` entry with the same `path`, valid `source_type`, existing `source`, and `qa_note`. If an element is intentionally omitted or rasterized, document that decision in `manifest.json` with fields such as `rasterized_or_omitted_text` or in the asset QA note. For `user-approved-rasterization`, include `approval_note` and `source_region_px` or `source_bbox_px`.
+Do not record a visual asset as final unless the underlying source exists and has been visually inspected. For editable-first visual decomposition, the source should be a `$imagegen` clean base or `$imagegen` asset sheet, not a crop from the original source slide. Every `images[*].path` in `manifest.json` must have an `asset_provenance` entry with the same `path`, valid `source_type`, existing `source`, and `qa_note`.
 
-Every page manifest must include `completion_status`. Use `ready_for_assembly` only when the page passes validation and is acceptable for the final deck. Use `blocked` when a required clean visual layer, `$imagegen` asset, or approved fallback is unavailable. A blocked page is an audit artifact, not a deck input.
+Every page manifest must include `completion_status`. Use `ready_for_assembly` only when the page passes validation and is acceptable for the final deck. Use `blocked` when a required clean visual layer or `$imagegen` asset is unavailable. A blocked page is an audit artifact, not a deck input.
 
 ## Multi-Page Delegation And Assembly
 
@@ -124,7 +124,7 @@ python3 {skill_root}/scripts/validate_pptx.py \
   --report output/image-to-editable-ppt/<job-id>/validation.json
 ```
 
-Deck validation also checks the page assembly contract. It rejects pages that use full-slide `source.png` or another user-provided full-slide raster as the background while also overlaying editable text boxes, because that creates baked-text overlap. If `$imagegen` is unavailable and the user asks for a usable fallback, create an `editable-layout-draft` with native shapes/text and no source raster background.
+Deck validation also checks the page assembly contract. It rejects pages that use full-slide `source.png` or another user-provided full-slide raster as the background while also overlaying editable text boxes, because that creates baked-text overlap.
 
 ## Photo Background With Editable Text
 
@@ -177,13 +177,13 @@ Inspect the clean base before assembly. Reject it if it still contains readable 
 
 Use the source image for alignment and object inventory, but not as the default visual asset source. Cropping source regions is only allowed in explicit visual-99 mode or for diagnostic comparisons.
 
-Do not repair text overlap by moving editable text over the original raster. The original raster already contains the text. The only acceptable repairs are a clean no-text visual base or an explicitly approved `editable-layout-draft` with no source raster background.
+Do not repair text overlap by moving editable text over the original raster. The original raster already contains the text. The only acceptable repair is a clean no-text visual base.
 
 ## Imagegen Asset-Sheet Decomposition
 
 Use `$imagegen` as the required default decomposition path for non-text visual assets and base visual elements. For dense pages, the reliable pattern is: whole slide reference -> clean no-text/no-standalone-icon layout base -> sparse chroma-key asset sheets -> local alpha cleanup -> deterministic split -> PPT images + editable text boxes. For simpler pages, the shorter asset-sheet-only pattern is acceptable. Do not replace this default path with direct crops from `source.png` or locally drawn approximations.
 
-If the user explicitly asks for pixel-level, near-original, or 99% visual fidelity, switch to a documented visual-99 mode only after naming the tradeoff: source-region crop assets improve visual fidelity and position accuracy, but reduce object-level editability. In visual-99 mode, crop only approved single objects or fidelity-critical regions, keep claimed editable text visible and native, record `source_region_px`/`source_bbox_px`, and treat tiled full-page mosaics as visual-only fallbacks rather than editable reconstruction.
+Near-original fidelity does not loosen the editable reconstruction contract. Source-region crop assets improve visual fidelity and position accuracy, but reduce object-level editability; if they would be required for the page to look correct, block and explain the tradeoff instead of marking the page ready for assembly.
 
 Skip `$imagegen` only when the source page is truly plain and the non-text layer contains only structural geometry that must remain editable, such as straight lines, rectangles, round rectangles, or circles. Prefer `$imagegen` when in doubt, especially for hand-drawn icons, pictograms, tapes, shadows, textured notes, decorative strokes, sketchy arrows, underlines, badges, and other style-bearing or reusable visual parts.
 
@@ -393,7 +393,7 @@ Passing means:
 - `images` is greater than 0 when visual assets were extracted.
 - All final raster assets have a validator-checked `asset_provenance` entry with valid `source_type`, existing `source`, and `qa_note`.
 - Readable text that is claimed editable is visible native PPT text in the PPTX itself. Hidden, transparent, 1 pt, off-canvas, or metadata-only text boxes do not count, even if the manifest claims a larger font size.
-- Required non-text visual objects are independently present as named `images` or `shapes` with exact `visual_object_id` or `id` matches to the required-object truth. Do not rely on broad aliases or labels. In strict editable reconstruction, raster objects count when they come from `$imagegen` clean bases or generated asset sheets as appropriate: clean bases count for layout/background fidelity, while required independently movable icons/arrows/checks/glyphs must come from separate asset images or native shapes. Source-slide rasterization is visual fallback. A tile, grid crop, renamed crop, or large source region that contains several unrelated objects does not count as an extracted visual object.
+- Required non-text visual objects are independently present as named `images` or `shapes` with exact `visual_object_id` or `id` matches to the required-object truth. Do not rely on broad aliases or labels. In strict editable reconstruction, raster objects count when they come from `$imagegen` clean bases or generated asset sheets as appropriate: clean bases count for layout/background fidelity, while required independently movable icons/arrows/checks/glyphs must come from separate asset images or native shapes. A tile, grid crop, renamed crop, or large source region that contains several unrelated objects does not count as an extracted visual object.
 - For photo-background pages, the clean background is allowed as one full-slide image when `contains_readable_text` is false and all visible text is represented as native PPT text.
 
 For research or strict QA, keep an independent required-object truth file and run the evaluator with `--required-objects`. The truth should list every icon, arrow, note, tape, checkbox, underline, chart glyph, badge, and illustration that must be independently movable/editable. Passing pixel diff is not enough.
@@ -422,7 +422,7 @@ Repair only the smallest failing scope:
 2. Inspect the preview, real renderer screenshot, or diff image.
 3. Classify the failure:
    - text inventory or OCR miss
-   - missing or low-fidelity asset
+   - missing or visibly degraded asset
    - missing or invalid asset provenance
    - bad crop or chroma-key cleanup
    - bad coordinate or size

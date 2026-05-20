@@ -51,10 +51,11 @@ def page_contract_violations(manifest):
         if entry.get("path")
     }
     completion_status = manifest.get("completion_status")
-    fallback_mode = manifest.get("fallback_mode")
     imagegen_required = bool(manifest.get("imagegen_required"))
 
-    if completion_status and completion_status not in ALLOWED_COMPLETION_STATUS:
+    if not completion_status:
+        violations.append({"field": "completion_status", "reason": "missing completion status"})
+    elif completion_status not in ALLOWED_COMPLETION_STATUS:
         violations.append({"field": "completion_status", "reason": "unknown status", "value": completion_status})
     if completion_status == "blocked":
         violations.append({"field": "completion_status", "reason": "blocked page is not ready for deck assembly"})
@@ -76,24 +77,17 @@ def page_contract_violations(manifest):
                 {
                     "field": "asset_provenance",
                     "path": path,
-                    "reason": "full-slide user-provided raster background cannot be assembled with editable text unless it is a documented visual-only output",
+                    "reason": "full-slide user-provided raster background cannot be assembled with editable text",
                 }
             )
 
     if imagegen_required:
         has_imagegen_asset = any(entry.get("source_type") == "imagegen" for entry in provenance_by_path.values())
-        if not has_imagegen_asset and fallback_mode != "editable-layout-draft":
+        if not has_imagegen_asset:
             violations.append(
                 {
                     "field": "imagegen_required",
-                    "reason": "page requires imagegen assets or must explicitly use editable-layout-draft fallback",
-                }
-            )
-        if fallback_mode == "editable-layout-draft" and images:
-            violations.append(
-                {
-                    "field": "fallback_mode",
-                    "reason": "editable-layout-draft fallback must not include raster source backgrounds",
+                    "reason": "page requires imagegen clean visual layers or imagegen assets before assembly",
                 }
             )
 

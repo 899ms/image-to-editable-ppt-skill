@@ -18,6 +18,6 @@ Release notes are generated from this file. Keep changelog entries in English.
 - Add repository README files, contribution guidance, changelog, license, PR template, and lightweight GitHub checks.
 - Add README badges for language switching, GitHub stars, and GitHub forks.
 - Document mandatory one-subagent-per-page dispatch for multi-image, PDF, and PPT/PPTX conversions, including the required blocker behavior when subagents are unavailable.
-- Clarify that dashboard and dense infographic pages require an explicit `$imagegen` gate decision, and that style-bearing icons or pictograms must use `$imagegen` assets unless the user approves a downgrade.
+- Clarify that dashboard and dense infographic pages require an explicit `$imagegen` gate decision, and that style-bearing icons or pictograms must use `$imagegen` assets.
 - Document that preview-visible crude or placeholder-like icons are blockers that require targeted `$imagegen` asset repair before reporting completion.
-- Require page manifests to declare `completion_status` and document the clean `editable-layout-draft` fallback for cases where the user explicitly prefers a usable low-fidelity output while `$imagegen` is unavailable.
+- Require page manifests to declare `completion_status` and block assembly when required `$imagegen` clean visual layers or assets are unavailable.
