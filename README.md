@@ -174,6 +174,12 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
 
 [![Star History Chart](https://api.star-history.com/svg?repos=ningzimu/image-to-editable-ppt-skill&type=Date)](https://www.star-history.com/#ningzimu/image-to-editable-ppt-skill&Date)
 
+## 交流群
+
+扫描二维码加入 Skill 交流群，分享使用经验、反馈问题，并获取更新通知。
+
+<img src="assets/image-to-editable-ppt-community-qr.png" alt="Image to Editable PPT Skill 交流群二维码" width="220">
+
 ## 许可证
 
 MIT

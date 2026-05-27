@@ -174,6 +174,12 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
 
 [![Star History Chart](https://api.star-history.com/svg?repos=ningzimu/image-to-editable-ppt-skill&type=Date)](https://www.star-history.com/#ningzimu/image-to-editable-ppt-skill&Date)
 
+## Community
+
+Scan the QR code to join the Skill community group, share usage experience, report issues, and receive update notices.
+
+<img src="assets/image-to-editable-ppt-community-qr.png" alt="Image to Editable PPT Skill community QR code" width="220">
+
 ## License
 
 MIT
