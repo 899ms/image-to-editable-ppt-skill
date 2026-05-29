@@ -4,6 +4,8 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+## 0.1.0
+
 ### Features
 
 - Expand the image-to-editable-ppt skill to normalize images, PDFs, and PPT/PPTX inputs into page jobs, assemble deck manifests into multi-page PPTX files, and preserve PPT/PPTX speaker notes.
