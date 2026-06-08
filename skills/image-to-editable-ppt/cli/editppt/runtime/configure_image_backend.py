@@ -6,7 +6,7 @@ from deck_run_state import load_deck, load_jobs, read_json, run_dir_from_target,
 
 
 def backend_contract(args):
-    requires_api_key = args.backend_id == "cli-api-fallback"
+    requires_api_key = args.backend_id == "openai-compatible-api"
     return {
         "backend_id": args.backend_id,
         "tool_name": args.tool_name,
@@ -18,28 +18,28 @@ def backend_contract(args):
         "mode_policy": "generate-or-edit-per-asset",
         "chroma_key_helper": "editppt image process-sheet",
         "input_context_policy": args.input_context_policy,
-        "save_path_policy": "copy selected outputs into page dir before manifest references them",
-        "handoff_rule": "use this backend only; return a blocker if unavailable",
+        "save_path_policy": "write outputs directly to page dir or copy selected outputs before manifest references them",
+        "handoff_rule": "call editppt image generate/edit/batch; the CLI selects Codex OAuth first and OpenAI-compatible API fallback second",
     }
 
 
 def main():
     parser = argparse.ArgumentParser(description="Record the run-level image backend contract.")
     parser.add_argument("run")
-    parser.add_argument("--backend-id", default="built-in-image-tool", choices=["built-in-image-tool", "cli-api-fallback"])
+    parser.add_argument("--backend-id", default="editppt-image-cli", choices=["editppt-image-cli", "openai-compatible-api"])
     parser.add_argument("--tool-name")
     parser.add_argument("--tool-call")
-    parser.add_argument("--model", default="built-in default")
+    parser.add_argument("--model", default="gpt-image-2")
     parser.add_argument("--fallback-command")
     parser.add_argument("--runtime-home", default="~/.editppt")
-    parser.add_argument("--input-context-policy", default="inspect local edit targets before built-in edit")
+    parser.add_argument("--input-context-policy", default="pass edit targets and strict visual references via editppt image edit --image")
     args = parser.parse_args()
 
     if args.tool_name is None:
-        args.tool_name = "image_gen" if args.backend_id == "built-in-image-tool" else "editppt image"
-    if args.tool_call is None and args.backend_id == "built-in-image-tool":
-        args.tool_call = "image_gen.imagegen"
-    if args.fallback_command is None and args.backend_id == "cli-api-fallback":
+        args.tool_name = "editppt image"
+    if args.tool_call is None:
+        args.tool_call = "editppt image generate/edit/batch"
+    if args.fallback_command is None:
         args.fallback_command = "editppt image"
 
     run_dir = run_dir_from_target(args.run)

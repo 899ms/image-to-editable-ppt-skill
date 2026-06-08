@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME_DIR = ROOT / "editppt/runtime"
+RUNTIME_DIR = ROOT / "skills/image-to-editable-ppt/cli/editppt/runtime"
 sys.path.insert(0, str(RUNTIME_DIR))
 
 from PIL import Image  # noqa: E402
@@ -51,6 +51,9 @@ class QualityContractTest(unittest.TestCase):
 
     def test_source_derived_assets_are_allowed(self):
         self.assertIn("source-derived-rasterization", ALLOWED_SOURCE_TYPES)
+
+    def test_latex_rendered_formula_assets_are_allowed(self):
+        self.assertIn("latex-rendered-formula", ALLOWED_SOURCE_TYPES)
 
     def test_round_rect_writes_ooxml_adjustment(self):
         xml = shape_xml(

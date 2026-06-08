@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
-"""Fallback CLI for image-to-editable-ppt image generation or editing with GPT Image models.
+"""Unified CLI for image-to-editable-ppt image generation or editing.
 
-Used when Codex's built-in image tool is unavailable, when the user explicitly
-opts into API mode, or when explicit transparent output requires the
-`gpt-image-1.5` fallback path.
-
-Defaults to gpt-image-2 and a structured prompt augmentation workflow.
-Reads OPENAI_API_KEY, OPENAI_BASE_URL, and IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL
+The CLI prefers local Codex OAuth auth when ~/.codex/auth.json is available.
+If Codex auth is missing, it falls back to OpenAI-compatible API credentials
 from the environment or ~/.editppt/config.yaml.
 """
 
@@ -15,13 +11,16 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import concurrent.futures
 import json
+import mimetypes
 import os
 from pathlib import Path
 import re
 import sys
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from urllib import error, request
 
 from io import BytesIO
 
@@ -37,7 +36,6 @@ GPT_IMAGE_MODEL_PREFIX = "gpt-image-"
 ALLOWED_LEGACY_SIZES = {"1024x1024", "1536x1024", "1024x1536", "auto"}
 ALLOWED_QUALITIES = {"low", "medium", "high", "auto"}
 ALLOWED_BACKGROUNDS = {"transparent", "opaque", "auto", None}
-ALLOWED_INPUT_FIDELITIES = {"low", "high", None}
 
 GPT_IMAGE_2_MODEL = "gpt-image-2"
 GPT_IMAGE_2_MIN_PIXELS = 655_360
@@ -48,7 +46,120 @@ GPT_IMAGE_2_MAX_RATIO = 3.0
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
 MAX_BATCH_JOBS = 500
 DEFAULT_CONFIG_HOME = "~/.editppt"
+DEFAULT_CODEX_AUTH_FILE = "~/.codex/auth.json"
+DEFAULT_CODEX_RESPONSES_BASE_URL = "https://chatgpt.com/backend-api/codex"
+DEFAULT_CODEX_RESPONSES_MODEL = "gpt-5.5"
 ENV_FIELDS = ("OPENAI_API_KEY", "OPENAI_BASE_URL", "IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL")
+MAX_CODEX_RESPONSE_BYTES = 64 * 1024 * 1024
+MAX_CODEX_BASE64_CHARS = 64 * 1024 * 1024
+
+BATCH_HELP_EPILOG = """\
+Backend:
+  editppt image chooses Codex OAuth first when ~/.codex/auth.json or
+  CODEX_AUTH_FILE is available. Otherwise it uses OPENAI_API_KEY,
+  OPENAI_BASE_URL, and IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL from the environment
+  or ~/.editppt/config.yaml.
+
+JSONL input:
+  Each non-empty line is one job. Comment lines starting with # are ignored.
+  A plain text line is treated as {"prompt": "<line>"}.
+  A JSON object must include "prompt".
+
+Job routing:
+  No image/images field -> generate job (/v1/images/generations).
+  image: "source.png" -> edit job with one input image (/v1/images/edits).
+  images: ["source.png", "style.png"] -> edit job with multiple input images.
+  mask: "mask.png" is supported for API edit jobs only.
+
+Per-job fields:
+  prompt, image, images, mask, out, n, size, quality, background,
+  output_format, output_compression, moderation, fields.
+
+Prompt fields:
+  Use either a nested fields object or flat keys:
+  use_case, scene, subject, style, composition, lighting, palette,
+  materials, text, constraints, negative.
+
+Output:
+  --out-dir is required. If a job has "out", that filename is written under
+  --out-dir. Otherwise the CLI creates a stable numbered slug from the prompt.
+  Duplicate output paths fail before requests are sent.
+
+Examples:
+  {"prompt":"Create a clean blue cloud icon","out":"cloud.png","text":"no text"}
+  {"prompt":"Extract the foreground icon exactly; do not redraw","image":"slide.png","out":"icon.png","constraints":"preserve source shape, color, stroke geometry"}
+  {"prompt":"Use source as target and style as reference","images":["source.png","style.png"],"out":"asset.png"}
+"""
+
+IMAGE_HELP_EPILOG = """\
+Backend selection:
+  Codex OAuth: uses ~/.codex/auth.json or CODEX_AUTH_FILE.
+  API fallback: uses OPENAI_API_KEY, OPENAI_BASE_URL, and
+  IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL from the environment or ~/.editppt/config.yaml.
+
+Setup:
+  codex login
+  editppt config --api-key "your-api-key" --model gpt-image-2
+  editppt config --api-key "your-api-key" --base-url https://example.test/v1 --model openai/gpt-image-2
+
+Input image rules:
+  generate creates a new image from prompt only.
+  edit passes each --image as an edit target, visual reference, or supporting input.
+  batch reads JSONL; jobs with image/images are edit jobs, jobs without them are generate jobs.
+
+Slide reconstruction patterns:
+  Clean base: use edit --image <source.png>; preserve source composition,
+  perspective, object positions, colors, lighting, material, and background identity.
+  Asset sheet: use edit --image <source.png>; separate exact existing foreground
+  bitmap objects on a flat chroma-key background with generous spacing.
+  Formula assets: use editppt formula render-latex, not editppt image.
+
+Output:
+  Write outputs under the page directory when used in a deck run. Record selected
+  images with editppt image import, then use process-sheet or crop when needed.
+"""
+
+GENERATE_HELP_EPILOG = """\
+Backend:
+  Uses Codex OAuth when available, otherwise API fallback from ~/.editppt/config.yaml
+  or environment variables.
+
+Use for:
+  New supporting images that do not need to preserve an existing slide object.
+
+Prompt fields:
+  --use-case, --scene, --subject, --style, --composition, --lighting, --palette,
+  --materials, --text, --constraints, and --negative are appended when
+  --augment is enabled.
+
+Examples:
+  editppt image generate --prompt "flat blue cloud icon" --text "no text" --out pages/page_001/assets/cloud.png
+  editppt image generate --prompt-file prompt.txt --size 1536x1024 --quality high --out output.png
+"""
+
+EDIT_HELP_EPILOG = """\
+Backend:
+  Uses Codex OAuth when available, otherwise API fallback from ~/.editppt/config.yaml
+  or environment variables.
+
+Use for:
+  Background cleanup, clean base creation, foreground icon extraction, and
+  source-faithful asset sheets. Pass the original slide through --image so the
+  model receives it as the edit target and strict visual reference.
+
+Prompt patterns:
+  Clean base: preserve source canvas ratio, composition, perspective, object
+  positions, colors, lighting, texture, and background identity; remove the
+  foreground text/objects that will be rebuilt.
+  Asset sheet: extract exact existing non-text foreground objects from the
+  source into a sparse chroma-key sheet; preserve shape, stroke geometry, color,
+  proportions, internal cutouts, and visual identity.
+
+Examples:
+  editppt image edit --image pages/page_001/source.png --prompt-file clean-base.prompt.txt --out pages/page_001/assets/clean-base.png
+  editppt image edit --image pages/page_001/source.png --prompt-file asset-sheet.prompt.txt --out pages/page_001/assets/asset-sheet.png
+  editppt image edit --image source.png --image style.png --prompt "Use source as target and style as supporting reference" --out out.png
+"""
 
 
 def _die(message: str, code: int = 1) -> None:
@@ -103,6 +214,203 @@ def _api_target_label() -> str:
     return "official OpenAI API (OPENAI_BASE_URL unset)"
 
 
+def _codex_auth_file() -> Path:
+    return Path(os.getenv("CODEX_AUTH_FILE", DEFAULT_CODEX_AUTH_FILE)).expanduser()
+
+
+def _load_codex_access_token() -> Optional[str]:
+    path = _codex_auth_file()
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    tokens = data.get("tokens")
+    if not isinstance(tokens, dict):
+        return None
+    token = tokens.get("access_token")
+    if isinstance(token, str) and token.strip():
+        return token.strip()
+    return None
+
+
+def _codex_available() -> bool:
+    return _load_codex_access_token() is not None
+
+
+def _codex_base_url() -> str:
+    raw = os.getenv("CODEX_RESPONSES_BASE_URL", DEFAULT_CODEX_RESPONSES_BASE_URL).strip()
+    if not raw:
+        return DEFAULT_CODEX_RESPONSES_BASE_URL
+    if re.fullmatch(r"https?://chatgpt\.com/backend-api(?:/codex)?(?:/v1)?/?", raw, re.I):
+        return DEFAULT_CODEX_RESPONSES_BASE_URL
+    return raw.rstrip("/")
+
+
+def _codex_responses_url() -> str:
+    return f"{_codex_base_url()}/responses"
+
+
+def _guess_mime(path: Path) -> str:
+    mime, _ = mimetypes.guess_type(str(path))
+    if mime and mime.startswith("image/"):
+        return mime
+    suffix = path.suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".webp":
+        return "image/webp"
+    return "image/png"
+
+
+def _image_to_data_url(path: Path) -> str:
+    data = path.read_bytes()
+    encoded = base64.b64encode(data).decode("ascii")
+    return f"data:{_guess_mime(path)};base64,{encoded}"
+
+
+def _codex_content(prompt: str, image_paths: List[Path]) -> List[Dict[str, Any]]:
+    content: List[Dict[str, Any]] = [{"type": "input_text", "text": prompt}]
+    for path in image_paths:
+        content.append(
+            {
+                "type": "input_image",
+                "image_url": _image_to_data_url(path),
+                "detail": "auto",
+            }
+        )
+    return content
+
+
+def _codex_body(
+    *,
+    prompt: str,
+    image_paths: List[Path],
+    model: str,
+    responses_model: str,
+    size: str,
+    quality: str,
+    output_format: str,
+    background: Optional[str],
+) -> Dict[str, Any]:
+    tool: Dict[str, Any] = {
+        "type": "image_generation",
+        "model": model,
+        "size": size,
+        "quality": quality,
+    }
+    if output_format:
+        tool["output_format"] = output_format
+    if background:
+        tool["background"] = background
+    return {
+        "model": responses_model,
+        "input": [{"role": "user", "content": _codex_content(prompt, image_paths)}],
+        "instructions": "You are an image generation assistant.",
+        "tools": [tool],
+        "tool_choice": {"type": "image_generation"},
+        "stream": True,
+        "store": False,
+    }
+
+
+def _post_codex_sse(body: Dict[str, Any], timeout: int) -> str:
+    token = _load_codex_access_token()
+    if not token:
+        _die(f"Codex OAuth auth is missing. Expected {_codex_auth_file()}.")
+    req = request.Request(
+        _codex_responses_url(),
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "text/event-stream",
+            "Content-Type": "application/json",
+            "User-Agent": "editppt-image-cli/0.1.0",
+        },
+    )
+    try:
+        with request.urlopen(req, timeout=timeout) as resp:
+            chunks: List[bytes] = []
+            total = 0
+            while True:
+                chunk = resp.read(1024 * 64)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_CODEX_RESPONSE_BYTES:
+                    _die("Codex image response exceeded size limit.")
+                chunks.append(chunk)
+            return b"".join(chunks).decode("utf-8", errors="replace")
+    except error.HTTPError as exc:
+        detail = exc.read(4096).decode("utf-8", errors="replace")
+        raise RuntimeError(f"Codex Responses request failed (HTTP {exc.code}): {detail}") from exc
+    except error.URLError as exc:
+        raise RuntimeError(f"Codex Responses request failed: {exc.reason}") from exc
+
+
+def _parse_codex_sse_events(body: str) -> List[Dict[str, Any]]:
+    events: List[Dict[str, Any]] = []
+    for line in body.splitlines():
+        if not line.startswith("data: "):
+            continue
+        payload = line[6:].strip()
+        if not payload or payload == "[DONE]":
+            continue
+        try:
+            event = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def _extract_codex_image_payloads(body: str) -> List[str]:
+    events = _parse_codex_sse_events(body)
+    for event in events:
+        if event.get("type") in {"response.failed", "error"}:
+            error_obj = event.get("error")
+            if isinstance(error_obj, dict):
+                message = error_obj.get("message") or error_obj.get("code")
+            else:
+                message = event.get("message")
+            raise RuntimeError(str(message or "Codex image generation failed."))
+
+    payloads: List[str] = []
+    for event in events:
+        item = event.get("item")
+        if (
+            event.get("type") == "response.output_item.done"
+            and isinstance(item, dict)
+            and item.get("type") == "image_generation_call"
+            and isinstance(item.get("result"), str)
+        ):
+            payloads.append(item["result"])
+
+    if payloads:
+        return payloads
+
+    for event in events:
+        if event.get("type") != "response.completed":
+            continue
+        response_obj = event.get("response")
+        output = response_obj.get("output") if isinstance(response_obj, dict) else None
+        if not isinstance(output, list):
+            continue
+        for item in output:
+            if (
+                isinstance(item, dict)
+                and item.get("type") == "image_generation_call"
+                and isinstance(item.get("result"), str)
+            ):
+                payloads.append(item["result"])
+    if not payloads:
+        raise RuntimeError("No image payload found in Codex response.")
+    return payloads
+
+
 def _runtime_python_path() -> str:
     return sys.executable
 
@@ -111,13 +419,27 @@ def _skill_root() -> Path:
     env_root = os.getenv("IMAGE_TO_EDITABLE_PPT_SKILL_ROOT")
     if env_root:
         return Path(env_root).expanduser().resolve()
-    packaged = Path(__file__).resolve().parents[1] / "skill"
+
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if parent.name == "image-to-editable-ppt" and (parent / "SKILL.md").exists():
+            return parent.resolve()
+        source = parent / "skills" / "image-to-editable-ppt"
+        if source.exists():
+            return source.resolve()
+
+    packaged = current.parents[1] / "skill"
     if packaged.exists():
-        return packaged
-    source = Path(__file__).resolve().parents[2] / "skills" / "image-to-editable-ppt"
-    if source.exists():
-        return source
-    return Path(__file__).resolve().parents[1]
+        return packaged.resolve()
+
+    return current.parents[1].resolve()
+
+
+def _cli_reinstall_hint() -> str:
+    cli_dir = _skill_root() / "cli"
+    if (cli_dir / "pyproject.toml").exists():
+        return f"`pipx install --force --editable {cli_dir}`"
+    return "`pipx install --force --editable <skill-root>/cli`"
 
 
 def _dependency_hint(package: str, *, upgrade: bool = False) -> str:
@@ -125,7 +447,7 @@ def _dependency_hint(package: str, *, upgrade: bool = False) -> str:
     runtime_python = _runtime_python_path()
     return (
         "Install image-to-editable-ppt with pipx so CLI dependencies are installed, for example "
-        "`pipx install --force <repo-path>`, "
+        f"{_cli_reinstall_hint()}, "
         f"or install {package} directly in this environment with `{runtime_python} -m pip install {package_arg}`."
     )
 
@@ -149,9 +471,10 @@ def _ensure_api_key(dry_run: bool) -> None:
         command = f'editppt config --api-key "your-api-key" --model {model}'
         target_hint = "Detected official OpenAI API mode because OPENAI_BASE_URL is not set."
     _die(
-        "OPENAI_API_KEY is not set for image-to-editable-ppt CLI/API fallback.\n"
+        "Neither Codex OAuth nor OPENAI_API_KEY is available for editppt image generation.\n"
         f"{target_hint}\n"
-        "Use the built-in image tool if it is available. Otherwise configure ~/.editppt/config.yaml once:\n"
+        f"To use Codex OAuth, run `codex login` so {_codex_auth_file()} exists.\n"
+        "To use a third-party OpenAI-compatible image API, configure ~/.editppt/config.yaml once:\n"
         f"  {command}\n"
         "To use a third-party proxy, set OPENAI_BASE_URL and the provider's model name."
     )
@@ -247,11 +570,6 @@ def _validate_background(background: Optional[str]) -> None:
         _die("background must be one of transparent, opaque, or auto.")
 
 
-def _validate_input_fidelity(input_fidelity: Optional[str]) -> None:
-    if input_fidelity not in ALLOWED_INPUT_FIDELITIES:
-        _die("input-fidelity must be one of low or high.")
-
-
 def _validate_model(model: str) -> None:
     if GPT_IMAGE_MODEL_PREFIX not in model:
         _die(
@@ -274,7 +592,6 @@ def _validate_model_specific_options(
     *,
     model: str,
     background: Optional[str],
-    input_fidelity: Optional[str] = None,
 ) -> None:
     if not _is_gpt_image_2_model(model):
         return
@@ -282,10 +599,6 @@ def _validate_model_specific_options(
         _die(
             "transparent backgrounds are not supported in gpt-image-2, the latest model. "
             "Use --model gpt-image-1.5 --background transparent --output-format png instead."
-        )
-    if input_fidelity is not None:
-        _die(
-            "input_fidelity is not supported in gpt-image-2 because image inputs always use high fidelity for this model."
         )
 
 
@@ -483,6 +796,111 @@ def _decode_write_and_downscale(
         print(f"Wrote {derived}")
 
 
+def _write_codex_payloads_and_downscale(
+    payloads: List[str],
+    outputs: List[Path],
+    *,
+    force: bool,
+    downscale_max_dim: Optional[int],
+    downscale_suffix: str,
+    output_format: str,
+) -> None:
+    for idx, payload in enumerate(payloads):
+        if idx >= len(outputs):
+            break
+        if len(payload) > MAX_CODEX_BASE64_CHARS:
+            _die("Codex image payload exceeded size limit.")
+        out_path = outputs[idx]
+        if out_path.exists() and not force:
+            _die(f"Output already exists: {out_path} (use --force to overwrite)")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        raw = base64.b64decode(payload)
+        out_path.write_bytes(raw)
+        print(f"Wrote {out_path}")
+
+        if downscale_max_dim is None:
+            continue
+        derived = _derive_downscale_path(out_path, downscale_suffix)
+        if derived.exists() and not force:
+            _die(f"Output already exists: {derived} (use --force to overwrite)")
+        derived.parent.mkdir(parents=True, exist_ok=True)
+        resized = _downscale_image_bytes(raw, max_dim=downscale_max_dim, output_format=output_format)
+        derived.write_bytes(resized)
+        print(f"Wrote {derived}")
+
+
+def _run_codex_image(
+    *,
+    prompt: str,
+    image_paths: List[Path],
+    args: argparse.Namespace,
+    output_paths: List[Path],
+    output_format: str,
+    downscaled: Optional[List[str]],
+    endpoint_label: str,
+) -> bool:
+    if not _codex_available():
+        return False
+    if getattr(args, "mask", None):
+        _warn("Codex OAuth image backend does not support --mask; using API fallback for this request.")
+        return False
+    if getattr(args, "output_compression", None) is not None or getattr(args, "moderation", None):
+        _warn("Codex OAuth image backend does not support API-only compression/moderation options; using API fallback for this request.")
+        return False
+
+    responses_model = os.getenv("CODEX_RESPONSES_MODEL", DEFAULT_CODEX_RESPONSES_MODEL)
+    body = _codex_body(
+        prompt=prompt,
+        image_paths=image_paths,
+        model=args.model,
+        responses_model=responses_model,
+        size=args.size,
+        quality=args.quality,
+        output_format=output_format,
+        background=args.background,
+    )
+    if args.dry_run:
+        _print_request(
+            {
+                "backend": "codex-oauth",
+                "endpoint": _codex_responses_url(),
+                "operation": endpoint_label,
+                "outputs": [str(p) for p in output_paths],
+                "outputs_downscaled": downscaled,
+                "auth_file": str(_codex_auth_file()),
+                "responses_model": responses_model,
+                "image_model": args.model,
+                "input_images": [str(p) for p in image_paths],
+                "size": args.size,
+                "quality": args.quality,
+                "output_format": output_format,
+                "n": args.n,
+            }
+        )
+        return True
+
+    print(
+        f"Calling Codex OAuth image backend ({endpoint_label}) with {len(image_paths)} input image(s).",
+        file=sys.stderr,
+    )
+    started = time.time()
+    payloads: List[str] = []
+    for _ in range(args.n):
+        text = _post_codex_sse(body, int(getattr(args, "timeout", 180)))
+        payloads.extend(_extract_codex_image_payloads(text))
+    elapsed = time.time() - started
+    print(f"Codex OAuth image completed in {elapsed:.1f}s.", file=sys.stderr)
+    _write_codex_payloads_and_downscale(
+        payloads,
+        output_paths,
+        force=args.force,
+        downscale_max_dim=args.downscale_max_dim,
+        downscale_suffix=args.downscale_suffix,
+        output_format=output_format,
+    )
+    return True
+
+
 def _create_client():
     try:
         from openai import OpenAI
@@ -601,6 +1019,123 @@ def _job_output_paths(
     ]
 
 
+def _job_image_values(job: Dict[str, Any]) -> List[str]:
+    value = job.get("image")
+    if value is None:
+        value = job.get("images")
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    _die("Batch job image/images must be a string path or a list of paths.")
+    return []
+
+
+def _check_mask_path(mask: Optional[str]) -> Optional[Path]:
+    if not mask:
+        return None
+    mask_path = Path(mask)
+    if not mask_path.exists():
+        _die(f"Mask file not found: {mask_path}")
+    if mask_path.suffix.lower() != ".png":
+        _warn(f"Mask should be a PNG with an alpha channel: {mask_path}")
+    if mask_path.stat().st_size > MAX_IMAGE_BYTES:
+        _warn(f"Mask exceeds 50MB limit: {mask_path}")
+    return mask_path
+
+
+def _prepare_batch_job(
+    *,
+    args: argparse.Namespace,
+    job: Dict[str, Any],
+    idx: int,
+    out_dir: Path,
+    base_fields: Dict[str, Optional[str]],
+    base_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    prompt = str(job["prompt"]).strip()
+    fields = _merge_non_null(base_fields, job.get("fields", {}))
+    fields = _merge_non_null(fields, {k: job.get(k) for k in base_fields.keys()})
+    augmented = _augment_prompt_fields(args.augment, prompt, fields)
+
+    payload = dict(base_payload)
+    payload["prompt"] = augmented
+    payload = _merge_non_null(payload, {k: job.get(k) for k in base_payload.keys()})
+    payload = {k: v for k, v in payload.items() if v is not None}
+
+    _validate_generate_payload(payload)
+    output_format = _normalize_output_format(payload.get("output_format"))
+    _validate_transparency(payload.get("background"), output_format)
+    payload["output_format"] = output_format
+
+    n = int(payload.get("n", 1))
+    output_paths = _job_output_paths(
+        out_dir=out_dir,
+        output_format=output_format,
+        idx=idx,
+        prompt=prompt,
+        n=n,
+        explicit_out=job.get("out"),
+    )
+    downscaled = None
+    if args.downscale_max_dim is not None:
+        downscaled = [str(_derive_downscale_path(p, args.downscale_suffix)) for p in output_paths]
+
+    image_paths = _check_image_paths(_job_image_values(job))
+    mask_path = _check_mask_path(job.get("mask"))
+    if mask_path is not None and not image_paths:
+        _die(f"Batch job {idx} has mask but no image/images input.")
+
+    return {
+        "idx": idx,
+        "job_label": f"[job {idx}]",
+        "prompt": prompt,
+        "augmented_prompt": augmented,
+        "payload": payload,
+        "output_format": output_format,
+        "output_paths": output_paths,
+        "downscaled": downscaled,
+        "image_paths": image_paths,
+        "mask_path": mask_path,
+        "is_edit": bool(image_paths),
+    }
+
+
+def _prepare_batch_jobs(
+    *,
+    args: argparse.Namespace,
+    jobs: List[Dict[str, Any]],
+    out_dir: Path,
+    base_fields: Dict[str, Optional[str]],
+    base_payload: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    prepared = [
+        _prepare_batch_job(
+            args=args,
+            job=job,
+            idx=i,
+            out_dir=out_dir,
+            base_fields=base_fields,
+            base_payload=base_payload,
+        )
+        for i, job in enumerate(jobs, start=1)
+    ]
+
+    seen: Dict[Path, int] = {}
+    for spec in prepared:
+        paths = list(spec["output_paths"])
+        if spec["downscaled"]:
+            paths.extend(Path(path) for path in spec["downscaled"])
+        for path in paths:
+            previous = seen.get(path)
+            if previous is not None:
+                _die(f"Duplicate batch output path: {path} used by jobs {previous} and {spec['idx']}.")
+            seen[path] = spec["idx"]
+    return prepared
+
+
 def _extract_retry_after_seconds(exc: Exception) -> Optional[float]:
     # Best-effort: openai SDK errors vary by version. Prefer a conservative fallback.
     for attr in ("retry_after", "retry_after_seconds"):
@@ -632,7 +1167,55 @@ def _is_transient_error(exc: Exception) -> bool:
     if "timeout" in name or "timedout" in name or "tempor" in name:
         return True
     msg = str(exc).lower()
-    return "timeout" in msg or "timed out" in msg or "connection reset" in msg
+    return (
+        "timeout" in msg
+        or "timed out" in msg
+        or "connection reset" in msg
+        or "retry your request" in msg
+        or "processing your request" in msg
+    )
+
+
+def _run_codex_image_with_retries(
+    *,
+    attempts: int,
+    job_label: str,
+    prompt: str,
+    image_paths: List[Path],
+    args: argparse.Namespace,
+    output_paths: List[Path],
+    output_format: str,
+    downscaled: Optional[List[str]],
+    endpoint_label: str,
+) -> None:
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, attempts + 1):
+        try:
+            handled = _run_codex_image(
+                prompt=prompt,
+                image_paths=image_paths,
+                args=args,
+                output_paths=output_paths,
+                output_format=output_format,
+                downscaled=downscaled,
+                endpoint_label=endpoint_label,
+            )
+            if not handled:
+                raise RuntimeError("Codex OAuth backend cannot handle this batch job.")
+            return
+        except Exception as exc:
+            last_exc = exc
+            if not _is_transient_error(exc) or attempt == attempts:
+                raise
+            sleep_s = _extract_retry_after_seconds(exc)
+            if sleep_s is None:
+                sleep_s = min(60.0, 2.0**attempt)
+            print(
+                f"{job_label} attempt {attempt}/{attempts} failed ({exc.__class__.__name__}); retrying in {sleep_s:.1f}s",
+                file=sys.stderr,
+            )
+            time.sleep(sleep_s)
+    raise last_exc or RuntimeError("unknown error")
 
 
 async def _generate_one_with_retries(
@@ -646,6 +1229,41 @@ async def _generate_one_with_retries(
     for attempt in range(1, attempts + 1):
         try:
             return await client.images.generate(**payload)
+        except Exception as exc:
+            last_exc = exc
+            if not _is_transient_error(exc):
+                raise
+            if attempt == attempts:
+                raise
+            sleep_s = _extract_retry_after_seconds(exc)
+            if sleep_s is None:
+                sleep_s = min(60.0, 2.0**attempt)
+            print(
+                f"{job_label} attempt {attempt}/{attempts} failed ({exc.__class__.__name__}); retrying in {sleep_s:.1f}s",
+                file=sys.stderr,
+            )
+            await asyncio.sleep(sleep_s)
+    raise last_exc or RuntimeError("unknown error")
+
+
+async def _edit_one_with_retries(
+    client: Any,
+    payload: Dict[str, Any],
+    image_paths: List[Path],
+    mask_path: Optional[Path],
+    *,
+    attempts: int,
+    job_label: str,
+) -> Any:
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, attempts + 1):
+        try:
+            with _open_files(image_paths) as image_files, _open_mask(mask_path) as mask_file:
+                request_payload = dict(payload)
+                request_payload["image"] = image_files if len(image_files) > 1 else image_files[0]
+                if mask_file is not None:
+                    request_payload["mask"] = mask_file
+                return await client.images.edit(**request_payload)
         except Exception as exc:
             last_exc = exc
             if not _is_transient_error(exc):
@@ -678,46 +1296,82 @@ async def _run_generate_batch(args: argparse.Namespace) -> int:
         "output_compression": args.output_compression,
         "moderation": args.moderation,
     }
+    prepared_jobs = _prepare_batch_jobs(
+        args=args,
+        jobs=jobs,
+        out_dir=out_dir,
+        base_fields=base_fields,
+        base_payload=base_payload,
+    )
+
+    if _codex_available():
+        any_failed = False
+
+        def run_codex_job(spec: Dict[str, Any]) -> Tuple[int, Optional[str]]:
+            job_args = argparse.Namespace(**vars(args))
+            for key, value in spec["payload"].items():
+                if key != "prompt":
+                    setattr(job_args, key, value)
+            try:
+                if spec["mask_path"] is not None:
+                    raise RuntimeError("Codex OAuth batch does not support mask jobs; use API credentials for masked edits.")
+                _run_codex_image_with_retries(
+                    attempts=args.max_attempts,
+                    job_label=spec["job_label"],
+                    prompt=spec["augmented_prompt"],
+                    image_paths=spec["image_paths"],
+                    args=job_args,
+                    output_paths=spec["output_paths"],
+                    output_format=spec["output_format"],
+                    downscaled=spec["downscaled"],
+                    endpoint_label="batch",
+                )
+                return spec["idx"], None
+            except Exception as exc:
+                return spec["idx"], str(exc)
+
+        if args.dry_run:
+            for spec in prepared_jobs:
+                idx, error_message = run_codex_job(spec)
+                if error_message is None:
+                    continue
+                any_failed = True
+                print(f"[job {idx}/{len(prepared_jobs)}] failed: {error_message}", file=sys.stderr)
+                if args.fail_fast:
+                    raise RuntimeError(error_message)
+            return 1 if any_failed else 0
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.concurrency) as pool:
+            futures = [pool.submit(run_codex_job, spec) for spec in prepared_jobs]
+            for future in concurrent.futures.as_completed(futures):
+                idx, error_message = future.result()
+                if error_message is None:
+                    continue
+                any_failed = True
+                print(f"[job {idx}/{len(prepared_jobs)}] failed: {error_message}", file=sys.stderr)
+                if args.fail_fast:
+                    for pending in futures:
+                        if not pending.done():
+                            pending.cancel()
+                    raise RuntimeError(error_message)
+        return 1 if any_failed else 0
 
     if args.dry_run:
-        for i, job in enumerate(jobs, start=1):
-            prompt = str(job["prompt"]).strip()
-            fields = _merge_non_null(base_fields, job.get("fields", {}))
-            # Allow flat job keys as well (use_case, scene, etc.)
-            fields = _merge_non_null(fields, {k: job.get(k) for k in base_fields.keys()})
-            augmented = _augment_prompt_fields(args.augment, prompt, fields)
-
-            job_payload = dict(base_payload)
-            job_payload["prompt"] = augmented
-            job_payload = _merge_non_null(job_payload, {k: job.get(k) for k in base_payload.keys()})
-            job_payload = {k: v for k, v in job_payload.items() if v is not None}
-
-            _validate_generate_payload(job_payload)
-            effective_output_format = _normalize_output_format(job_payload.get("output_format"))
-            _validate_transparency(job_payload.get("background"), effective_output_format)
-            job_payload["output_format"] = effective_output_format
-
-            n = int(job_payload.get("n", 1))
-            outputs = _job_output_paths(
-                out_dir=out_dir,
-                output_format=effective_output_format,
-                idx=i,
-                prompt=prompt,
-                n=n,
-                explicit_out=job.get("out"),
-            )
-            downscaled = None
-            if args.downscale_max_dim is not None:
-                downscaled = [
-                    str(_derive_downscale_path(p, args.downscale_suffix)) for p in outputs
-                ]
+        for spec in prepared_jobs:
+            payload_preview = dict(spec["payload"])
+            if spec["is_edit"]:
+                payload_preview["image"] = [str(p) for p in spec["image_paths"]]
+                if spec["mask_path"]:
+                    payload_preview["mask"] = str(spec["mask_path"])
             _print_request(
                 {
-                    "endpoint": "/v1/images/generations",
-                    "job": i,
-                    "outputs": [str(p) for p in outputs],
-                    "outputs_downscaled": downscaled,
-                    **job_payload,
+                    "backend": "openai-compatible-api",
+                    "endpoint": "/v1/images/edits" if spec["is_edit"] else "/v1/images/generations",
+                    "operation": "edit" if spec["is_edit"] else "generate",
+                    "job": spec["idx"],
+                    "outputs": [str(p) for p in spec["output_paths"]],
+                    "outputs_downscaled": spec["downscaled"],
+                    **payload_preview,
                 }
             )
         return 0
@@ -729,51 +1383,38 @@ async def _run_generate_batch(args: argparse.Namespace) -> int:
 
     async def run_job(i: int, job: Dict[str, Any]) -> Tuple[int, Optional[str]]:
         nonlocal any_failed
-        prompt = str(job["prompt"]).strip()
-        job_label = f"[job {i}/{len(jobs)}]"
-
-        fields = _merge_non_null(base_fields, job.get("fields", {}))
-        fields = _merge_non_null(fields, {k: job.get(k) for k in base_fields.keys()})
-        augmented = _augment_prompt_fields(args.augment, prompt, fields)
-
-        payload = dict(base_payload)
-        payload["prompt"] = augmented
-        payload = _merge_non_null(payload, {k: job.get(k) for k in base_payload.keys()})
-        payload = {k: v for k, v in payload.items() if v is not None}
-
-        n = int(payload.get("n", 1))
-        _validate_generate_payload(payload)
-        effective_output_format = _normalize_output_format(payload.get("output_format"))
-        _validate_transparency(payload.get("background"), effective_output_format)
-        payload["output_format"] = effective_output_format
-        outputs = _job_output_paths(
-            out_dir=out_dir,
-            output_format=effective_output_format,
-            idx=i,
-            prompt=prompt,
-            n=n,
-            explicit_out=job.get("out"),
-        )
+        spec = job
+        job_label = f"[job {i}/{len(prepared_jobs)}]"
         try:
             async with sem:
                 print(f"{job_label} starting", file=sys.stderr)
                 started = time.time()
-                result = await _generate_one_with_retries(
-                    client,
-                    payload,
-                    attempts=args.max_attempts,
-                    job_label=job_label,
-                )
+                if spec["is_edit"]:
+                    result = await _edit_one_with_retries(
+                        client,
+                        spec["payload"],
+                        spec["image_paths"],
+                        spec["mask_path"],
+                        attempts=args.max_attempts,
+                        job_label=job_label,
+                    )
+                else:
+                    result = await _generate_one_with_retries(
+                        client,
+                        spec["payload"],
+                        attempts=args.max_attempts,
+                        job_label=job_label,
+                    )
                 elapsed = time.time() - started
                 print(f"{job_label} completed in {elapsed:.1f}s", file=sys.stderr)
             images = [item.b64_json for item in result.data]
             _decode_write_and_downscale(
                 images,
-                outputs,
+                spec["output_paths"],
                 force=args.force,
                 downscale_max_dim=args.downscale_max_dim,
                 downscale_suffix=args.downscale_suffix,
-                output_format=effective_output_format,
+                output_format=spec["output_format"],
             )
             return i, None
         except Exception as exc:
@@ -783,7 +1424,7 @@ async def _run_generate_batch(args: argparse.Namespace) -> int:
                 raise
             return i, str(exc)
 
-    tasks = [asyncio.create_task(run_job(i, job)) for i, job in enumerate(jobs, start=1)]
+    tasks = [asyncio.create_task(run_job(i, spec)) for i, spec in enumerate(prepared_jobs, start=1)]
 
     try:
         await asyncio.gather(*tasks)
@@ -828,14 +1469,36 @@ def _generate(args: argparse.Namespace) -> None:
         downscaled = [str(_derive_downscale_path(p, args.downscale_suffix)) for p in output_paths]
 
     if args.dry_run:
+        if _run_codex_image(
+            prompt=prompt,
+            image_paths=[],
+            args=args,
+            output_paths=output_paths,
+            output_format=output_format,
+            downscaled=downscaled,
+            endpoint_label="generate",
+        ):
+            return
         _print_request(
             {
+                "backend": "openai-compatible-api",
                 "endpoint": "/v1/images/generations",
                 "outputs": [str(p) for p in output_paths],
                 "outputs_downscaled": downscaled,
                 **payload,
             }
         )
+        return
+
+    if _run_codex_image(
+        prompt=prompt,
+        image_paths=[],
+        args=args,
+        output_paths=output_paths,
+        output_format=output_format,
+        downscaled=downscaled,
+        endpoint_label="generate",
+    ):
         return
 
     print(
@@ -882,7 +1545,6 @@ def _edit(args: argparse.Namespace) -> None:
         "background": args.background,
         "output_format": args.output_format,
         "output_compression": args.output_compression,
-        "input_fidelity": args.input_fidelity,
         "moderation": args.moderation,
     }
     payload = {k: v for k, v in payload.items() if v is not None}
@@ -890,25 +1552,46 @@ def _edit(args: argparse.Namespace) -> None:
     output_format = _normalize_output_format(args.output_format)
     _validate_transparency(args.background, output_format)
     payload["output_format"] = output_format
-    _validate_input_fidelity(args.input_fidelity)
     output_paths = _build_output_paths(args.out, output_format, args.n, args.out_dir)
     downscaled = None
     if args.downscale_max_dim is not None:
         downscaled = [str(_derive_downscale_path(p, args.downscale_suffix)) for p in output_paths]
 
     if args.dry_run:
+        if _run_codex_image(
+            prompt=prompt,
+            image_paths=image_paths,
+            args=args,
+            output_paths=output_paths,
+            output_format=output_format,
+            downscaled=downscaled,
+            endpoint_label="edit",
+        ):
+            return
         payload_preview = dict(payload)
         payload_preview["image"] = [str(p) for p in image_paths]
         if mask_path:
             payload_preview["mask"] = str(mask_path)
         _print_request(
             {
+                "backend": "openai-compatible-api",
                 "endpoint": "/v1/images/edits",
                 "outputs": [str(p) for p in output_paths],
                 "outputs_downscaled": downscaled,
                 **payload_preview,
             }
         )
+        return
+
+    if _run_codex_image(
+        prompt=prompt,
+        image_paths=image_paths,
+        args=args,
+        output_paths=output_paths,
+        output_format=output_format,
+        downscaled=downscaled,
+        endpoint_label="edit",
+    ):
         return
 
     print(
@@ -992,10 +1675,16 @@ class _FileBundle:
         return False
 
 
-def _add_shared_args(parser: argparse.ArgumentParser) -> None:
+def _add_shared_args(
+    parser: argparse.ArgumentParser,
+    *,
+    include_prompt: bool = True,
+    include_out: bool = True,
+) -> None:
     parser.add_argument("--model", default=_default_model(), help="Image model. Defaults to IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL or gpt-image-2.")
-    parser.add_argument("--prompt", help="Prompt text. Use this or --prompt-file.")
-    parser.add_argument("--prompt-file", help="Read prompt text from a file, or '-' for stdin.")
+    if include_prompt:
+        parser.add_argument("--prompt", help="Prompt text. Use this or --prompt-file.")
+        parser.add_argument("--prompt-file", help="Read prompt text from a file, or '-' for stdin.")
     parser.add_argument("--n", type=int, default=1, help="Number of images to generate, 1-10.")
     parser.add_argument("--size", default=DEFAULT_SIZE, help="Output size such as 2560x1440 or auto.")
     parser.add_argument("--quality", default=DEFAULT_QUALITY, help="Image quality: low, medium, high, or auto.")
@@ -1003,10 +1692,12 @@ def _add_shared_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-format", help="Output format: png, jpeg, jpg, or webp.")
     parser.add_argument("--output-compression", type=int, help="Compression 0-100 when supported.")
     parser.add_argument("--moderation", help="Provider moderation setting when supported.")
-    parser.add_argument("--out", default=DEFAULT_OUTPUT_PATH, help="Output file for one image.")
+    if include_out:
+        parser.add_argument("--out", default=DEFAULT_OUTPUT_PATH, help="Output file for one image.")
     parser.add_argument("--out-dir", help="Output directory for multiple images or batch generation.")
     parser.add_argument("--force", action="store_true", help="Overwrite existing output files.")
-    parser.add_argument("--dry-run", action="store_true", help="Validate arguments and auth without calling the API.")
+    parser.add_argument("--dry-run", action="store_true", help="Validate arguments and show the selected backend without calling it.")
+    parser.add_argument("--timeout", type=int, default=180, help="Network timeout in seconds for Codex OAuth requests.")
     parser.add_argument("--augment", dest="augment", action="store_true", help="Expand prompt with structured visual hints.")
     parser.add_argument("--no-augment", dest="augment", action="store_false", help="Send the prompt without augmentation.")
     parser.set_defaults(augment=True)
@@ -1033,30 +1724,51 @@ def main() -> int:
     _load_runtime_env()
     parser = argparse.ArgumentParser(
         prog="editppt image",
-        description="Fallback CLI for explicit image generation or editing via GPT Image models"
+        description="""Unified image generation/editing backend for editppt.
+
+Use this command for all generated images, image edits, clean bases, foreground
+asset sheets, and batch image jobs in image-to-editable-ppt runs.
+""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=IMAGE_HELP_EPILOG,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    gen_parser = subparsers.add_parser("generate", help="Create a new image")
+    gen_parser = subparsers.add_parser(
+        "generate",
+        help="Create a new image",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=GENERATE_HELP_EPILOG,
+    )
     _add_shared_args(gen_parser)
     gen_parser.set_defaults(func=_generate)
 
     batch_parser = subparsers.add_parser(
         "batch",
-        help="Generate multiple prompts concurrently (JSONL input)",
+        help="Generate or edit multiple JSONL jobs concurrently",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=BATCH_HELP_EPILOG,
     )
-    _add_shared_args(batch_parser)
-    batch_parser.add_argument("--input", required=True, help="Path to JSONL file (one job per line)")
+    _add_shared_args(batch_parser, include_prompt=False, include_out=False)
+    batch_parser.add_argument(
+        "--input",
+        required=True,
+        help="Path to JSONL file. Each line needs prompt; add image/images to run an edit job.",
+    )
     batch_parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY, help="Concurrent API calls, 1-25.")
     batch_parser.add_argument("--max-attempts", type=int, default=3, help="Retry attempts per job, 1-10.")
     batch_parser.add_argument("--fail-fast", action="store_true", help="Stop the batch after the first failed job.")
     batch_parser.set_defaults(func=_generate_batch)
 
-    edit_parser = subparsers.add_parser("edit", help="Edit an existing image")
+    edit_parser = subparsers.add_parser(
+        "edit",
+        help="Edit one or more images",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=EDIT_HELP_EPILOG,
+    )
     _add_shared_args(edit_parser)
     edit_parser.add_argument("--image", action="append", required=True, help="Input image path. Repeat for multiple inputs.")
     edit_parser.add_argument("--mask", help="Optional mask image path.")
-    edit_parser.add_argument("--input-fidelity", help="Input fidelity hint when supported: low or high.")
     edit_parser.set_defaults(func=_edit)
 
     args = parser.parse_args()
@@ -1077,12 +1789,9 @@ def main() -> int:
     _validate_size(args.size, args.model)
     _validate_quality(args.quality)
     _validate_background(args.background)
-    _validate_model_specific_options(
-        model=args.model,
-        background=args.background,
-        input_fidelity=getattr(args, "input_fidelity", None),
-    )
-    _ensure_api_key(args.dry_run)
+    _validate_model_specific_options(model=args.model, background=args.background)
+    if not _codex_available():
+        _ensure_api_key(args.dry_run)
 
     args.func(args)
     return 0

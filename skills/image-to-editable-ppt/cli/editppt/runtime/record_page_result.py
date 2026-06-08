@@ -45,13 +45,18 @@ def main():
     run_dir = run_dir_from_target(args.run)
     jobs = load_jobs(run_dir)
     page = find_page(jobs, args.page)
-    if page.get("status") not in {"dispatched", "repair_dispatched"}:
+    direct_single_page = len(jobs.get("pages", [])) == 1 and page.get("status") == "pending"
+    if page.get("status") == "dispatched":
+        dispatch = page.get("dispatch") or {}
+        if dispatch.get("agent_id") != args.agent_id:
+            raise SystemExit(
+                f"Agent id mismatch for {page['page_id']}: dispatch={dispatch.get('agent_id')} result={args.agent_id}"
+            )
+        record_mode = "dispatched-worker"
+    elif direct_single_page:
+        record_mode = "direct-main-agent"
+    else:
         raise SystemExit(f"{page['page_id']} must be dispatched before result recording; got {page.get('status')}")
-    dispatch = page.get("dispatch") or {}
-    if dispatch.get("agent_id") != args.agent_id:
-        raise SystemExit(
-            f"Agent id mismatch for {page['page_id']}: dispatch={dispatch.get('agent_id')} result={args.agent_id}"
-        )
 
     page_dir = page_dir_for(run_dir, page)
     page_result_path = inside_or_missing(page_dir, args.page_result)
@@ -63,12 +68,11 @@ def main():
     hashes = {key: sha256_file(path) for key, path in paths.items()}
     page["result"] = {
         "agent_id": args.agent_id,
+        "record_mode": record_mode,
         "recorded_at": now_iso(),
         "outputs": {key: rel_to_run(run_dir, path) for key, path in paths.items()},
         "hashes": hashes,
         "validation_passed": validation_passed,
-        "qa_note": result.get("qa_note"),
-        "known_limits": result.get("known_limits", []),
     }
     page["status"] = "recorded"
     update_jobs_run_status(jobs)

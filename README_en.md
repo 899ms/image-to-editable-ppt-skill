@@ -9,11 +9,11 @@ A skill for converting images, PDFs, and image-based PPT files into editable Pow
 It is useful when screenshot-like or image-based slides need to become easier to edit again, with text, simple shapes, and visual assets separated where practical.
 
 > [!WARNING]
-> This skill currently uses a multi-agent collaborative reconstruction workflow with complex flow control. It is not a lightweight converter. The AI runs a "**rebuild -> self-verify -> self-repair**" loop and may iterate multiple times until it judges the result close enough to the source. During this process, page workers may make **many attempts** per page, so the workflow can consume a large number of tokens.
+> This skill currently uses a multi-agent collaborative reconstruction workflow with complex flow control. It is not a lightweight converter. The AI runs a "**rebuild -> self-check -> page-local correction**" loop and may iterate multiple times until it judges the result close enough to the source. During this process, page workers may make **many attempts** per page, so the workflow can consume a large number of tokens.
 >
 > **GPT Pro is recommended. Plus users should use this skill cautiously.**
 >
-> Reconstructing a 10-page PPT may consume your entire 5-hour usage window. A single-page PPT reconstruction may take more than 10 minutes. Multi-page inputs first rebuild one sample page with the main agent, then continue with the remaining pages after approval.
+> Reconstructing a 10-page PPT may consume your entire 5-hour usage window. A single-page PPT reconstruction may take more than 10 minutes. Multi-page inputs are dispatched directly to page workers according to the configured concurrency slots.
 >
 > **If you do not strongly need editability, avoid this skill.**
 >
@@ -49,16 +49,94 @@ It is useful when screenshot-like or image-based slides need to become easier to
 
 - Broad input coverage for many slide-reconstruction scenarios: one image, multiple images, multi-page PDFs, and image-based PPT files into editable `.pptx`.
 - Single-image input is rebuilt directly by the main agent.
-- Multi-page input first rebuilds one representative sample page with the main agent. After user approval, that page is used as the final result for that page, and only the remaining pages are dispatched to page workers.
-- In Codex, the built-in image generation/editing tool is preferred. Other skill-capable agents can use this skill when they provide a page worker/subagent mechanism.
-- If no built-in image tool is available, configure the API/CLI fallback. Its configuration lives in `~/.editppt/config.yaml`; on Windows this is `%USERPROFILE%\.editppt\config.yaml`.
+- Multi-page input is dispatched directly to page workers/subagents according to `max_concurrent_pages`.
+- Image generation and editing are unified through the `editppt image` CLI. The CLI uses local Codex OAuth first, then OpenAI-compatible API fallback when Codex auth is unavailable.
+- Third-party API fallback configuration lives in `~/.editppt/config.yaml`; on Windows this is `%USERPROFILE%\.editppt\config.yaml`.
 - Uses a pure visual reconstruction workflow with no third-party OCR or layout-analysis service dependency.
 - Keep multiple images in the provided order; preserve PDF and `.pptx` page order.
 - Preserve `.pptx` speaker notes on matching output slides without modifying note text.
 - Decides page by page whether to use the confirmed image backend for visual-layer extraction; when needed, sparse asset sheets group foreground assets to reduce image generation calls.
 - Supports hybrid reconstruction: editable text, simple native shapes, and independent image assets.
 
-## Input And Output Contract
+## Use Cases
+
+- Rebuild one or more slide images into a PowerPoint deck whose text and element positions can be adjusted.
+- Convert multiple images or a multi-page PDF into a multi-slide `.pptx`.
+- Convert image-based PPT slides into a more editable `.pptx` while preserving source speaker notes.
+- Recreate a single-slide visual design while keeping text editable.
+- Compare source pages against output slides to find missing text, alignment drift, or missing assets.
+
+## Runtime Requirements
+
+- Multi-page input requires the agent to dispatch page workers/subagents; if page workers cannot be created, the main agent can only process pages one by one under the same page contract, which is much slower.
+- Complex background cleanup, foreground icon extraction, transparent asset sheets, and local image edits use `editppt image edit/generate/batch`.
+- If local Codex OAuth exists (`~/.codex/auth.json`), the CLI uses it directly; otherwise it uses API fallback.
+- API fallback configuration lives in `~/.editppt/config.yaml`; on Windows this is `%USERPROFILE%\.editppt\config.yaml`.
+
+## Image Backend And Third-Party API Configuration
+
+`editppt image` selects the image backend automatically: it uses local Codex OAuth first, then falls back to OpenAI-compatible API settings from `~/.editppt/config.yaml` or environment variables.
+
+Manual API fallback setup is usually unnecessary. Configure it only when:
+
+- The user explicitly asks to use a third-party API or OpenAI-compatible proxy.
+- The skill is used in Claude Code, OpenClaw, Hermes Agent, or another non-Codex environment without usable Codex OAuth auth.
+- `editppt image` reports that both Codex OAuth and `OPENAI_API_KEY` are unavailable.
+
+API keys belong only in user-level config, not in the project, run, or skill directory. Common commands:
+
+```bash
+editppt config --api-key "your-api-key" --model gpt-image-2
+
+editppt config \
+  --api-key "your-api-key" \
+  --base-url "https://your-openai-compatible-endpoint/v1" \
+  --model openai/gpt-image-2
+
+editppt doctor --check-api
+```
+
+## Known Limitations
+
+- Other agents need skill loading, file access, CLI execution, and a page worker/subagent dispatch mechanism.
+- Codex OAuth depends on the local Codex auth session and subscription-side image limits; API fallback depends on the selected OpenAI-compatible service's image generation/editing capabilities.
+- This skill has relatively complex flow control and high token usage. The cost of converting an image-based PPT into an editable PPT **may be 2-3x the cost of generating an image-based PPT**.
+- Results are limited by the model's baseline visual understanding and its ability to follow the skill workflow; usage quality is **not guaranteed for models below gpt-5.5**.
+- Some image elements and text positions may shift slightly, so output is **not guaranteed to be a 100% replica of the original page**.
+
+## Install
+
+```text
+Install the image-to-editable-ppt skill from https://github.com/ningzimu/image-to-editable-ppt-skill
+```
+
+## Update
+
+```text
+Update the image-to-editable-ppt skill from https://github.com/ningzimu/image-to-editable-ppt-skill
+```
+
+## Usage
+
+In agents that support explicit skill selection, use the agent's syntax to select `image-to-editable-ppt`; in Codex, use `$image-to-editable-ppt`. Images, PDFs, and `.pptx` files can be pasted or attached directly in the conversation, or provided as local paths:
+
+```text
+$image-to-editable-ppt convert this image into an editable PowerPoint.
+$image-to-editable-ppt convert these images into one editable PowerPoint.
+$image-to-editable-ppt convert <path-to-deck.pdf> into an editable PowerPoint.
+$image-to-editable-ppt convert <path-to-image-based.pptx> into an editable PowerPoint.
+```
+
+The normal workflow is:
+
+1. Create an isolated job folder, normalize inputs into `pages/page_NNN/source.png`, and write the default `editppt image` backend.
+2. Rebuild a single image directly with the main agent and record it with `editppt run record --agent-id main`; for multi-page input, dispatch pages to page workers in `max_concurrent_pages` batches.
+3. Each page worker owns one page directory and completes reconstruction, self-check, and page-local correction there.
+4. Build one page manifest per page with editable text, simple shapes, and positioned image assets.
+5. Use `editppt` commands to record dispatches, page results, and accepted status.
+6. Assemble the final `.pptx`, copy `.pptx` speaker notes when present, and run deck validation.
+
+## Output Layout
 
 Output is always a PowerPoint `.pptx` file:
 
@@ -71,155 +149,13 @@ Output is always a PowerPoint `.pptx` file:
 
 Speaker notes are handled only for `.pptx` input. The parent agent copies notes to matching output slides unchanged: no translation, summarization, rewriting, or page-subagent processing.
 
-## Use Cases
-
-- Rebuild one or more slide images into a PowerPoint deck whose text and element positions can be adjusted.
-- Convert multiple images or a multi-page PDF into a multi-slide `.pptx`.
-- Convert image-based PPT slides into a more editable `.pptx` while preserving source speaker notes.
-- Recreate a single-slide visual design while keeping text editable.
-- Compare source pages against output slides to find missing text, alignment drift, or missing assets.
-
-## Runtime Requirements
-
-- Multi-page input requires the agent to dispatch page workers/subagents; if page workers cannot be created, the skill stops and reports a blocker.
-- In Codex, the built-in image generation/editing tool is preferred.
-- Complex background repair, icon redraws, transparent asset sheets, and targeted repairs depend on an available image backend.
-- API/CLI fallback configuration lives in `~/.editppt/config.yaml`; on Windows this is `%USERPROFILE%\.editppt\config.yaml`.
-
-## Image Backend And Third-Party API Configuration
-
-> [!TIP]
-> You can start using this skill normally. In most cases, you do not need to configure a third-party image API manually. `editppt prepare` writes the default image backend. The AI should ask for extra configuration only when API/CLI fallback or a custom backend is actually needed.
->
-> - If you use Codex's built-in image generation/editing tool, no extra API key is usually required.
-> - If you use a third-party API or an OpenAI-compatible proxy, provide that provider's documentation for `gpt-image-2` or image editing. The AI should read it first, then configure the `base URL` and model name.
-
-The manual configuration below is only for the API/CLI fallback path. Requesting a higher image resolution, better quality, transparent assets, or a targeted page repair does not by itself require third-party API configuration. Typical cases that need configuration are:
-
-- The current environment has no usable built-in image generation/editing tool.
-- The user explicitly asks to use a third-party API or OpenAI-compatible proxy.
-- The skill is used in Claude Code, OpenClaw, Hermes Agent, or another non-Codex environment without an equivalent built-in image tool.
-
-If you use Codex through a GPT subscription and the built-in image tool is available, you do not need to configure `gpt-image-2` separately. Even if the prompt says "use `gpt-image-2`", the workflow can usually keep using the built-in Codex image tool without an API key.
-
-If an external image API is actually required, the config is written to `~/.editppt/config.yaml`; on Windows this is `%USERPROFILE%\.editppt\config.yaml`. Add a `base URL` only for a third-party proxy. The default model is `gpt-image-2` unless the provider requires another name. Do not write API keys into the project directory, run directory, or skill directory, and do not commit them.
-
-For manual setup or troubleshooting, run:
-
-```bash
-editppt config --api-key "your-api-key" --model gpt-image-2
-```
-
-For a third-party proxy, also pass `--base-url`. If the proxy uses a custom model name, set `--model` to the provider's required value:
-
-```bash
-editppt config \
-  --api-key "your-api-key" \
-  --base-url "https://your-openai-compatible-endpoint/v1" \
-  --model openai/gpt-image-2
-```
-
-After configuration, check the current CLI dependencies and fallback config:
-
-```bash
-editppt doctor --check-api
-```
-
-## Known Limitations
-
-- Other agents need skill loading, file access, CLI execution, and a page worker/subagent dispatch mechanism.
-- API/CLI fallback depends on the selected OpenAI-compatible service's image generation/editing capabilities. Model, size, quality, and transparent-output support may vary by provider.
-- This skill has relatively complex flow control and high token usage. The cost of converting an image-based PPT into an editable PPT **may be 2-3x the cost of generating an image-based PPT**.
-- Results are limited by the model's baseline visual understanding and its ability to follow the skill workflow; usage quality is **not guaranteed for models below gpt-5.5**.
-- Some image elements and text positions may shift slightly, so output is **not guaranteed to be a 100% replica of the original page**.
-
-## Install
-
-Recommended Codex installation:
-
-```bash
-npx -y skills@latest add ningzimu/image-to-editable-ppt-skill \
-  --skill image-to-editable-ppt \
-  --agent codex \
-  --global
-```
-
-You can also type this directly in a Codex conversation:
-
-```text
-$skill-installer https://github.com/ningzimu/image-to-editable-ppt-skill
-```
-
-You can also download `image-to-editable-ppt-skill-v*.zip` from GitHub Releases, unzip it, and place the contained `image-to-editable-ppt` folder at `~/.codex/skills/image-to-editable-ppt`.
-
-Restart Codex after installation.
-
-### Optional: Install the Global CLI
-
-If you want agents to remember one command, install the global CLI from the local repository with `pipx`. This does not require publishing to PyPI. macOS / Linux:
-
-```bash
-pipx install --editable /path/to/image-to-edited-ppt-skill
-editppt --help
-```
-
-Windows PowerShell:
-
-```powershell
-pipx install --editable C:\path\to\image-to-edited-ppt-skill
-editppt --help
-```
-
-After that, register the skill with the same command. `--agent` is passed through to `npx skills@latest`; editppt does not keep an agent allowlist:
-
-```bash
-editppt install --agent codex
-```
-
-You can also check the local CLI and config first:
-
-```bash
-editppt setup
-editppt doctor
-```
-
-The run workflow also uses the same entrypoint, for example:
-
-```bash
-editppt prepare <path-to-deck>
-editppt run next <run>
-editppt run finalize <run>
-```
-
-## Usage
-
-Use `$image-to-editable-ppt` to explicitly select this skill. Images, PDFs, and `.pptx` files can be pasted or attached directly in the conversation, or provided as local paths:
-
-```text
-$image-to-editable-ppt convert this image into an editable PowerPoint.
-$image-to-editable-ppt convert these images into one editable PowerPoint.
-$image-to-editable-ppt convert <path-to-deck.pdf> into an editable PowerPoint.
-$image-to-editable-ppt convert <path-to-image-based.pptx> into an editable PowerPoint.
-```
-
-The normal workflow is:
-
-1. Create an isolated job folder, normalize inputs into `pages/page_NNN/source.png`, and write the default image backend.
-2. Rebuild a single image directly with the main agent; for multi-page input, rebuild one sample page with the main agent and wait for user approval.
-3. After sample approval, use the sample page as the final result for that page and dispatch the remaining pages to page workers in `max_concurrent_pages` batches.
-4. Build one page manifest per page with editable text, simple shapes, and positioned image assets.
-5. Use `editppt` commands to record the sample page, dispatches, page results, repairs, and accepted status.
-6. Assemble the final `.pptx`, copy `.pptx` speaker notes when present, and run deck validation.
-
-## Output Layout
-
 Use one isolated output directory per conversion. All intermediate files and final outputs stay inside it:
 
 ```text
 output/image-to-editable-ppt/{job-id}/        # One conversion job folder
 ├── input/                                    # Original input file copies
 ├── deck_manifest.json                        # Deck-level page list and output config
-├── page_jobs.json                            # Per-page dispatch, repair, and completion state
+├── page_jobs.json                            # Per-page dispatch and completion state
 ├── run_state.json                            # Overall job state
 ├── notes_manifest.json                       # PPTX speaker-note extraction and mapping record
 ├── final/                                    # Final output folder
@@ -229,7 +165,7 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
 └── pages/                                    # Per-page reconstruction workspaces
     ├── page_001/                             # Page 1 workspace
     │   ├── source.png                        # Normalized source image for this page
-    │   ├── page_request.json                 # Page request, image backend, and user feedback
+    │   ├── page_request.json                 # Page request and image backend
     │   ├── imagegen-jobs.json                # Image generation/editing calls and result records for this page
     │   ├── assets/                           # Independent image assets for this page
     │   ├── page.pptx                         # Single-page PPTX
@@ -237,7 +173,7 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
     │   ├── split_assets_contact.png          # Asset-splitting inspection image
     │   ├── manifest.json                     # Text, shape, and asset description for this page
     │   ├── validation.json                   # Page validation result
-    │   └── page_result.json                  # Final page result and known limits
+    │   └── page_result.json                  # Page artifact index
     └── page_002/                             # Later page workspace
         └── ...
 ```
@@ -245,8 +181,8 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
 ## Scope
 
 - This skill reconstructs input pages; it is not a from-scratch deck content generator.
-- Single-image input is rebuilt directly by the main agent; for multi-page input, only the sample page is rebuilt by the main agent and the remaining pages must be rebuilt by page workers/subagents.
-- Complex visual assets need an available image backend; if image generation/editing is unavailable, affected pages are treated as blockers.
+- Multi-page input is rebuilt in parallel through page workers/subagents.
+- Complex visual assets need an available `editppt image` backend; if image generation/editing is unavailable, still deliver the current openable, structurally valid PPT and describe missing assets in validation output.
 - Complex photos, illustrations, textures, and hand-drawn decorations are usually movable image assets, not internally editable PowerPoint objects.
 - Tables, charts, and diagrams should only be rebuilt as native objects when confidence is high enough; otherwise keep them as assets and document the limit.
 - Visual similarity is not enough. Acceptance should check package structure, editable text coverage, asset provenance, preview, and diff.
@@ -256,14 +192,13 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
 ```text
 .
 ├── .github/                              # GitHub workflows and repository checks
-├── editppt/                              # `editppt` CLI and deterministic runtime modules
-├── skills/                               # Codex skill package directory
+├── skills/                               # Skill package directory
 │   └── image-to-editable-ppt/            # Installable image-to-editable-ppt skill
 │       ├── SKILL.md                      # Skill entrypoint and execution rules
-│       ├── agents/                       # Skill metadata for Codex UI
+│       ├── agents/                       # Skill metadata for agent UI
+│       ├── cli/                          # Self-contained `editppt` CLI and deterministic runtime modules
 │       ├── references/                   # Reconstruction, state-machine, and QA references
 │       └── prompts/                      # Page worker prompt templates
-├── pyproject.toml                        # Python package, dependencies, and `editppt` entrypoint
 ├── AGENTS.md                             # Repository-level collaboration and editing rules
 ├── CHANGELOG.md                          # User-visible change log
 ├── LICENSE                               # Open-source license

@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 DEFAULT_CONFIG_HOME = "~/.editppt"
+DEFAULT_CODEX_AUTH_FILE = "~/.codex/auth.json"
 CODEX_PPT_RUNTIME_HOME = "~/.codex-ppt-skill"
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 ENV_FIELDS = ("OPENAI_API_KEY", "OPENAI_BASE_URL", "IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL")
@@ -23,13 +24,27 @@ def skill_root():
     env_root = os.getenv("IMAGE_TO_EDITABLE_PPT_SKILL_ROOT")
     if env_root:
         return Path(env_root).expanduser().resolve()
-    packaged = Path(__file__).resolve().parents[1] / "skill"
+
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if parent.name == "image-to-editable-ppt" and (parent / "SKILL.md").exists():
+            return parent.resolve()
+        source = parent / "skills" / "image-to-editable-ppt"
+        if source.exists():
+            return source.resolve()
+
+    packaged = current.parents[1] / "skill"
     if packaged.exists():
-        return packaged
-    source = Path(__file__).resolve().parents[2] / "skills" / "image-to-editable-ppt"
-    if source.exists():
-        return source
-    return Path(__file__).resolve().parents[1]
+        return packaged.resolve()
+
+    return current.parents[1].resolve()
+
+
+def cli_reinstall_hint():
+    cli_dir = skill_root() / "cli"
+    if (cli_dir / "pyproject.toml").exists():
+        return f"`pipx install --force --editable {cli_dir}`"
+    return "`pipx install --force --editable <skill-root>/cli`"
 
 
 def runtime_home():
@@ -62,7 +77,7 @@ def read_config_file(path):
         import yaml
     except ImportError as exc:
         raise SystemExit(
-            "PyYAML is required to read editppt config. Reinstall with `pipx install --force <repo-path>`."
+            f"PyYAML is required to read editppt config. Reinstall with {cli_reinstall_hint()}."
         ) from exc
     with path.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
@@ -78,7 +93,7 @@ def write_config_file(path, values):
         import yaml
     except ImportError as exc:
         raise SystemExit(
-            "PyYAML is required to write editppt config. Reinstall with `pipx install --force <repo-path>`."
+            f"PyYAML is required to write editppt config. Reinstall with {cli_reinstall_hint()}."
         ) from exc
     data = {key: values[key] for key in ENV_FIELDS if values.get(key)}
     try:
@@ -100,6 +115,22 @@ def mask_secret(value):
     if len(value) <= 8:
         return "****"
     return f"{value[:4]}...{value[-4:]}"
+
+
+def codex_auth_file():
+    return Path(os.getenv("CODEX_AUTH_FILE", DEFAULT_CODEX_AUTH_FILE)).expanduser()
+
+
+def codex_oauth_ready():
+    path = codex_auth_file()
+    if not path.exists():
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    tokens = data.get("tokens")
+    return isinstance(tokens, dict) and bool(str(tokens.get("access_token") or "").strip())
 
 
 def import_codex_ppt_values(values):
@@ -171,7 +202,9 @@ def collect_status(check_api=False):
     }
     api_key = values.get("OPENAI_API_KEY", "")
     api_ready = bool(api_key)
-    ok = all(dependencies.values()) and (api_ready if check_api else True)
+    codex_ready = codex_oauth_ready()
+    image_backend_ready = codex_ready or api_ready
+    ok = all(dependencies.values()) and (image_backend_ready if check_api else True)
     return {
         "ok": ok,
         "skill_root": str(skill_root()),
@@ -191,9 +224,17 @@ def collect_status(check_api=False):
             ),
             "imported_codex_ppt": imported_codex_ppt,
         },
+        "codex_oauth": {
+            "ready": codex_ready,
+            "auth_file": str(codex_auth_file()),
+        },
+        "image_backend": {
+            "ready": image_backend_ready,
+            "selection": "codex-oauth" if codex_ready else ("openai-compatible-api" if api_ready else "missing"),
+        },
         "next": "no action needed" if ok else (
-            "editppt config --api-key <key>" if check_api and not api_ready
-            else "pipx install --force <repo-path>"
+            "run `codex login` or `editppt config --api-key <key>`" if check_api and not image_backend_ready
+            else cli_reinstall_hint().strip("`")
         ),
     }
 
@@ -205,6 +246,8 @@ def doctor(args):
         return 0 if status["ok"] else 1
 
     api = status["api_fallback"]
+    codex = status["codex_oauth"]
+    image_backend = status["image_backend"]
     print(f"skill root: {status['skill_root']}")
     print(f"config home: {status['config_home']}")
     print(f"cli python: {status['cli_python']}")
@@ -212,15 +255,17 @@ def doctor(args):
     print(f"OPENAI_API_KEY={'set (' + mask_secret(os.getenv('OPENAI_API_KEY', '')) + ')' if os.getenv('OPENAI_API_KEY') else api['OPENAI_API_KEY']}")
     print(f"OPENAI_BASE_URL={api['OPENAI_BASE_URL']}")
     print(f"IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL={api['IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL']}")
+    print(f"Codex OAuth={'ready' if codex['ready'] else 'missing'} ({codex['auth_file']})")
+    print(f"image backend={image_backend['selection']}")
     for module, module_ok in status["dependencies"].items():
         print(f"python import {module}: {'ok' if module_ok else 'missing'}")
     if not all(status["dependencies"].values()):
-        print("dependency install hint: run `pipx install --force <repo-path>` or `pipx upgrade image-to-editable-ppt`.")
+        print(f"dependency install hint: run {cli_reinstall_hint()}.")
     if args.check_api:
-        if api["ready"]:
-            print("API check: configured (network probe not performed by doctor)")
+        if image_backend["ready"]:
+            print("image backend check: configured (network probe not performed by doctor)")
         else:
-            print("API check: OPENAI_API_KEY is missing")
+            print("image backend check: Codex OAuth and OPENAI_API_KEY are both missing")
     print(f"next: {status['next']}")
     return 0 if status["ok"] else 1
 

@@ -12,6 +12,8 @@ from pathlib import Path
 
 EMU_PER_INCH = 914400
 REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+ASPECT_16_9 = 16 / 9
+ASPECT_TOLERANCE = 0.03
 
 
 def emu(value):
@@ -55,24 +57,70 @@ def source_size_px(manifest):
     return None
 
 
-def px_to_inches(manifest, x, y, width, height):
+def slide_size(manifest):
     slide = manifest.get("slide", {})
+    return float(slide.get("width", 13.333)), float(slide.get("height", 7.5))
+
+
+def fit_content_box(source_width, source_height, slide_width, slide_height):
+    source_aspect = source_width / source_height
+    slide_aspect = slide_width / slide_height
+    if source_aspect >= slide_aspect:
+        width = slide_width
+        height = width / source_aspect
+        left = 0
+        top = (slide_height - height) / 2
+    else:
+        height = slide_height
+        width = height * source_aspect
+        left = (slide_width - width) / 2
+        top = 0
+    return {"left": left, "top": top, "width": width, "height": height}
+
+
+def content_box_for_manifest(manifest):
+    content_box = manifest.get("content_box")
+    if content_box:
+        return {
+            "left": float(content_box.get("left", 0)),
+            "top": float(content_box.get("top", 0)),
+            "width": float(content_box.get("width", 1)),
+            "height": float(content_box.get("height", 1)),
+        }
+    source_size = source_size_px(manifest)
+    slide_width, slide_height = slide_size(manifest)
+    if not source_size:
+        return {"left": 0, "top": 0, "width": slide_width, "height": slide_height}
+    source_width, source_height = source_size
+    return fit_content_box(source_width, source_height, slide_width, slide_height)
+
+
+def px_to_inches(manifest, x, y, width, height):
     source_size = source_size_px(manifest)
     if not source_size:
         raise ValueError("Manifest uses pixel coordinates but lacks source.width_px/source.height_px")
     source_width, source_height = source_size
-    slide_width = float(slide.get("width", 13.333))
-    slide_height = float(slide.get("height", 7.5))
+    content_box = content_box_for_manifest(manifest)
     return {
-        "left": float(x) / source_width * slide_width,
-        "top": float(y) / source_height * slide_height,
-        "width": float(width) / source_width * slide_width,
-        "height": float(height) / source_height * slide_height,
+        "left": content_box["left"] + float(x) / source_width * content_box["width"],
+        "top": content_box["top"] + float(y) / source_height * content_box["height"],
+        "width": float(width) / source_width * content_box["width"],
+        "height": float(height) / source_height * content_box["height"],
     }
 
 
 def normalize_position_item(manifest, item):
     item = dict(item)
+    if "polygon_px" in item:
+        points = [(float(point[0]), float(point[1])) for point in item["polygon_px"]]
+        if points and "box_px" not in item:
+            xs = [point[0] for point in points]
+            ys = [point[1] for point in points]
+            item["box_px"] = [min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)]
+        item["polygon"] = [
+            [px_to_inches(manifest, point[0], point[1], 0, 0)["left"], px_to_inches(manifest, point[0], point[1], 0, 0)["top"]]
+            for point in points
+        ]
     if "box_px" in item:
         x, y, width, height = item["box_px"]
         item.update(px_to_inches(manifest, x, y, width, height))
@@ -167,9 +215,11 @@ def text_box_xml(idx, item):
         run_color = hex_color(run.get("color", item.get("color", "#111111")))
         run_bold = ' b="1"' if run.get("bold", item.get("bold")) else ""
         run_italic = ' i="1"' if run.get("italic", item.get("italic")) else ""
+        run_baseline = run.get("baseline")
+        run_baseline_attr = f' baseline="{int(float(run_baseline))}"' if run_baseline not in (None, "") else ""
         run_text = xml_text(run.get("text", ""))
         return (
-            f'<a:r><a:rPr lang="zh-CN" sz="{run_font_size}"{run_bold}{run_italic}>'
+            f'<a:r><a:rPr lang="zh-CN" sz="{run_font_size}"{run_bold}{run_italic}{run_baseline_attr}>'
             f'<a:solidFill><a:srgbClr val="{run_color}"/></a:solidFill>'
             f'<a:latin typeface="{run_font}"/><a:ea typeface="{run_font}"/><a:cs typeface="{run_font}"/>'
             f'</a:rPr><a:t>{run_text}</a:t></a:r>'
@@ -229,15 +279,52 @@ def shape_xml(idx, item):
     fill = shape_fill(item.get("fill"))
     line = shape_line_xml(item.get("stroke", "#000000"), stroke_width, item.get("dash"))
     preset = item.get("preset")
-    if not preset:
-        preset = "line" if kind == "line" else "ellipse" if kind == "ellipse" else "roundRect" if kind == "roundRect" else "rect"
-    geometry = preset_geometry_xml(preset, item)
+    if item.get("polygon_px"):
+        geometry = custom_polygon_geometry_xml(item)
+    else:
+        if not preset:
+            preset = "line" if kind == "line" else "ellipse" if kind == "ellipse" else "roundRect" if kind == "roundRect" else "rect"
+        geometry = preset_geometry_xml(preset, item)
     return f"""
       <p:sp>
         <p:nvSpPr><p:cNvPr id="{idx}" name="{xml_text(kind.title())} {idx}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
         <p:spPr><a:xfrm{flip_h}{flip_v}><a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm>{geometry}{fill}{line}</p:spPr>
         <p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody>
       </p:sp>"""
+
+
+def custom_polygon_geometry_xml(item):
+    points = [(float(point[0]), float(point[1])) for point in item.get("polygon_px", [])]
+    if len(points) < 3:
+        return '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+    box = item.get("box_px")
+    if box and len(box) == 4:
+        left, top, width, height = [float(value) for value in box]
+    else:
+        xs = [point[0] for point in points]
+        ys = [point[1] for point in points]
+        left, top = min(xs), min(ys)
+        width, height = max(xs) - left, max(ys) - top
+    width = max(width, 1.0)
+    height = max(height, 1.0)
+
+    def rel_coord(point):
+        x, y = point
+        return int(round((x - left) / width * 21600)), int(round((y - top) / height * 21600))
+
+    first_x, first_y = rel_coord(points[0])
+    segments = [f'<a:moveTo><a:pt x="{first_x}" y="{first_y}"/></a:moveTo>']
+    for point in points[1:]:
+        x, y = rel_coord(point)
+        segments.append(f'<a:lnTo><a:pt x="{x}" y="{y}"/></a:lnTo>')
+    segments.append("<a:close/>")
+    return (
+        '<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/>'
+        '<a:rect l="l" t="t" r="r" b="b"/>'
+        '<a:pathLst><a:path w="21600" h="21600">'
+        + "".join(segments)
+        + "</a:path></a:pathLst></a:custGeom>"
+    )
 
 
 def round_rect_adjustment(item):
@@ -385,13 +472,22 @@ def content_types_xml(manifests, notes_indices=None):
     return f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">{default_xml}{"".join(overrides)}</Types>'
 
 
+def is_wide_slide(width, height):
+    return abs((float(width) / float(height)) / ASPECT_16_9 - 1) <= ASPECT_TOLERANCE
+
+
+def slide_size_type(width, height):
+    return "wide" if is_wide_slide(width, height) else "custom"
+
+
 def presentation_xml(slide_count, width, height):
     slide_ids = "".join(f'<p:sldId id="{255 + i}" r:id="rId{i + 1}"/>' for i in range(1, slide_count + 1))
+    size_type = slide_size_type(width, height)
     return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
   <p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>
   <p:sldIdLst>{slide_ids}</p:sldIdLst>
-  <p:sldSz cx="{width}" cy="{height}" type="wide"/>
+  <p:sldSz cx="{width}" cy="{height}" type="{size_type}"/>
   <p:notesSz cx="6858000" cy="9144000"/>
 </p:presentation>"""
 
@@ -404,9 +500,10 @@ def presentation_rels_xml(slide_count):
 
 
 def write_common_parts(z, slide_count, width, height, notes_count):
+    presentation_format = "Widescreen" if slide_size_type(width, height) == "wide" else "Custom"
     z.writestr("_rels/.rels", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>""")
     z.writestr("docProps/core.xml", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Image to editable PPT</dc:title></cp:coreProperties>""")
-    z.writestr("docProps/app.xml", f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Codex</Application><PresentationFormat>Widescreen</PresentationFormat><Slides>{slide_count}</Slides></Properties>""")
+    z.writestr("docProps/app.xml", f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Codex</Application><PresentationFormat>{presentation_format}</PresentationFormat><Slides>{slide_count}</Slides></Properties>""")
     z.writestr("ppt/presentation.xml", presentation_xml(slide_count, width, height))
     z.writestr("ppt/_rels/presentation.xml.rels", presentation_rels_xml(slide_count))
     z.writestr("ppt/slideMasters/slideMaster1.xml", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld><p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/><p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst></p:sldMaster>""")
@@ -533,7 +630,10 @@ def render_preview(manifest, manifest_path, out_path):
         fill = preview_color(item.get("fill"))
         outline = preview_color(item.get("stroke", "#000000"))
         width = max(1, int(float(item.get("stroke_width", 1))))
-        if item.get("type") == "line":
+        if item.get("polygon"):
+            points = [(point[0] * scale, point[1] * scale) for point in item["polygon"]]
+            draw.polygon(points, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline)
+        elif item.get("type") == "line":
             if "points" in item:
                 points = [value * scale for value in item["points"]]
                 draw.line(points, fill=outline, width=width)
@@ -547,6 +647,12 @@ def render_preview(manifest, manifest_path, out_path):
         elif item.get("type") == "roundRect" or item.get("preset") == "roundRect":
             radius = int(float(item.get("radius", 0.12)) * scale)
             draw.rounded_rectangle(box, radius=radius, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline, width=width)
+        elif item.get("preset") == "diamond":
+            left, top, right, bottom = box
+            center_x = (left + right) / 2
+            center_y = (top + bottom) / 2
+            points = [(center_x, top), (right, center_y), (center_x, bottom), (left, center_y)]
+            draw.polygon(points, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline)
         else:
             draw.rectangle(box, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline, width=width)
 
@@ -585,6 +691,23 @@ def render_preview(manifest, manifest_path, out_path):
         x = int(item.get("left", 0) * scale)
         y = int(item.get("top", 0) * scale)
         rotation = float(item.get("rotation", 0) or 0)
+        if item.get("runs") and not rotation:
+            cursor_x = x
+            base_size = size
+            for run in item["runs"]:
+                run_size = max(1, int(float(run.get("font_size", item.get("font_size", 18))) * scale / 72 * preview_font_scale))
+                run_font_path = choose_preview_font(run.get("preview_font") or item.get("preview_font"))
+                try:
+                    run_font = ImageFont.truetype(run_font_path, size=run_size) if run_font_path else ImageFont.load_default()
+                except Exception:
+                    run_font = font
+                run_fill = preview_color(run.get("color", item.get("color", "#111111")))
+                baseline = float(run.get("baseline", 0) or 0)
+                run_y = y + int(-baseline / 100000 * base_size)
+                run_text = str(run.get("text", ""))
+                draw.text((cursor_x, run_y), run_text, fill=run_fill, font=run_font)
+                cursor_x += int(draw.textlength(run_text, font=run_font))
+            return
         if rotation:
             layer_w = max(1, int(item.get("width", 1) * scale))
             layer_h = max(1, int(item.get("height", 0.4) * scale))

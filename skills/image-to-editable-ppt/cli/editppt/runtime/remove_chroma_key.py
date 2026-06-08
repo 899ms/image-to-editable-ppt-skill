@@ -33,12 +33,28 @@ def _dependency_hint(package: str) -> str:
     if env_root:
         skill_root = Path(env_root).expanduser().resolve()
     else:
-        packaged = Path(__file__).resolve().parents[1] / "skill"
-        source = Path(__file__).resolve().parents[2] / "skills" / "image-to-editable-ppt"
-        skill_root = packaged if packaged.exists() else source if source.exists() else Path(__file__).resolve().parents[1]
+        current = Path(__file__).resolve()
+        skill_root = None
+        for parent in current.parents:
+            if parent.name == "image-to-editable-ppt" and (parent / "SKILL.md").exists():
+                skill_root = parent.resolve()
+                break
+            source = parent / "skills" / "image-to-editable-ppt"
+            if source.exists():
+                skill_root = source.resolve()
+                break
+        if skill_root is None:
+            packaged = current.parents[1] / "skill"
+            skill_root = packaged.resolve() if packaged.exists() else current.parents[1].resolve()
+    cli_dir = skill_root / "cli"
+    install_hint = (
+        f"`pipx install --force --editable {cli_dir}`"
+        if (cli_dir / "pyproject.toml").exists()
+        else "`pipx install --force --editable <skill-root>/cli`"
+    )
     return (
         "Install image-to-editable-ppt with pipx so CLI dependencies are installed, for example "
-        "`pipx install --force <repo-path>`, "
+        f"{install_hint}, "
         f"or install {package} directly with `{python} -m pip install {package}`."
     )
 

@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-ACTIVE_PAGE_STATUSES = {"dispatched", "repair_dispatched"}
-DISPATCHABLE_PAGE_STATUSES = {"pending", "repair_needed"}
-DEFAULT_MAX_CONCURRENT_PAGES = 4
+ACTIVE_PAGE_STATUSES = {"dispatched"}
+DISPATCHABLE_PAGE_STATUSES = {"pending"}
+DEFAULT_MAX_CONCURRENT_PAGES = 6
 
 
 def now_iso():
@@ -164,7 +164,6 @@ def dispatchable_pages(jobs):
         page
         for page in jobs.get("pages", [])
         if page.get("status") in DISPATCHABLE_PAGE_STATUSES
-        and not page.get("sample_page_approved")
     ]
 
 
@@ -174,7 +173,7 @@ def dispatch_slots_available(jobs):
 
 def update_jobs_run_status(jobs):
     pages = jobs.get("pages", [])
-    if pages and all(page.get("status") in {"dispatched", "recorded", "repair_dispatched", "accepted"} for page in pages):
+    if pages and all(page.get("status") in {"dispatched", "recorded", "accepted"} for page in pages):
         jobs["run_status"] = "pages_dispatched"
     if pages and all(page.get("status") in {"recorded", "accepted"} for page in pages):
         jobs["run_status"] = "pages_recorded"

@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME_DIR = ROOT / "editppt/runtime"
+RUNTIME_DIR = ROOT / "skills/image-to-editable-ppt/cli/editppt/runtime"
 SKILL_SCRIPT_DIR = ROOT / "skills/image-to-editable-ppt/scripts"
 LEGACY_ENTRYPOINTS = {
     "prepare_inputs.py",

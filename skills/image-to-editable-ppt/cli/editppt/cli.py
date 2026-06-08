@@ -14,11 +14,14 @@ def _skill_root() -> Path:
     package_root = Path(__file__).resolve().parent
     packaged_skill = package_root / "skill"
     if packaged_skill.exists():
-        return packaged_skill
+        return packaged_skill.resolve()
 
-    source_skill = package_root.parent / "skills" / "image-to-editable-ppt"
-    if source_skill.exists():
-        return source_skill.resolve()
+    for candidate in package_root.parents:
+        if candidate.name == "image-to-editable-ppt" and (candidate / "SKILL.md").exists():
+            return candidate.resolve()
+        source_skill = candidate / "skills" / "image-to-editable-ppt"
+        if source_skill.exists():
+            return source_skill.resolve()
 
     raise RuntimeError(
         "Could not locate the image-to-editable-ppt skill directory. "

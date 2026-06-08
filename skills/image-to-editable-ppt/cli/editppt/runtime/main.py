@@ -6,39 +6,50 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 from deck_run_state import (
     dispatch_slots_available,
     dispatchable_pages,
+    find_page,
     load_deck,
     load_jobs,
     load_run_state,
+    page_dir_for,
+    read_json,
     run_dir_from_target,
+)
+from formula_renderer import (
+    FormulaRenderError,
+    formula_image_fragment,
+    render_latex_asset,
+    write_json,
 )
 
 
 RUNTIME_DIR = Path(__file__).resolve().parent
 HELP_FORMATTER = argparse.RawDescriptionHelpFormatter
-SKILL_REPO = "ningzimu/image-to-editable-ppt-skill"
-SKILL_NAME = "image-to-editable-ppt"
-PACKAGE_NAME = "image-to-editable-ppt"
 
 
 def skill_root() -> Path:
     env_root = os.environ.get("IMAGE_TO_EDITABLE_PPT_SKILL_ROOT")
     if env_root:
         return Path(env_root).expanduser().resolve()
+
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if parent.name == "image-to-editable-ppt" and (parent / "SKILL.md").exists():
+            return parent.resolve()
+        source = parent / "skills" / "image-to-editable-ppt"
+        if source.exists():
+            return source.resolve()
+
     packaged = RUNTIME_DIR.parent / "skill"
     if packaged.exists():
         return packaged.resolve()
-    source = RUNTIME_DIR.parents[1] / "skills" / "image-to-editable-ppt"
-    if source.exists():
-        return source.resolve()
+
     raise RuntimeError("Could not locate image-to-editable-ppt skill resources.")
 
 
@@ -119,101 +130,6 @@ def cmd_setup(args: argparse.Namespace) -> int:
     return print_json(payload)
 
 
-def _strip_remainder(args: list[str]) -> list[str]:
-    if args and args[0] == "--":
-        return args[1:]
-    return args
-
-
-def _print_or_run_external(command: list[str], dry_run: bool) -> int:
-    if dry_run:
-        print(" ".join(command))
-        return 0
-    return subprocess.run(command).returncode
-
-
-def _skills_command(action: str, args: argparse.Namespace) -> list[str]:
-    command = [
-        "npx",
-        "-y",
-        "skills@latest",
-        action,
-        SKILL_REPO,
-        "--skill",
-        SKILL_NAME,
-        "--agent",
-        args.agent,
-    ]
-    if getattr(args, "global_install", True):
-        command.append("--global")
-    command.extend(_strip_remainder(getattr(args, "extra_args", [])))
-    return command
-
-
-def cmd_install(args: argparse.Namespace) -> int:
-    return _print_or_run_external(_skills_command("add", args), args.dry_run)
-
-
-def cmd_uninstall(args: argparse.Namespace) -> int:
-    return _print_or_run_external(_skills_command("remove", args), args.dry_run)
-
-
-def _editable_source() -> str | None:
-    try:
-        from importlib import metadata
-    except ImportError:
-        return None
-    try:
-        dist = metadata.distribution(PACKAGE_NAME)
-    except metadata.PackageNotFoundError:
-        return None
-    direct_url = dist.read_text("direct_url.json")
-    if not direct_url:
-        return None
-    try:
-        payload = json.loads(direct_url)
-    except json.JSONDecodeError:
-        return None
-    if not payload.get("dir_info", {}).get("editable"):
-        return None
-    url = payload.get("url", "")
-    if url.startswith("file://"):
-        return url.removeprefix("file://")
-    return url or None
-
-
-def _pipx_upgrade_command() -> list[str]:
-    pipx = shutil.which("pipx") or "pipx"
-    return [pipx, "upgrade", PACKAGE_NAME]
-
-
-def cmd_update(args: argparse.Namespace) -> int:
-    if args.cli_only and args.skill_only:
-        print("--cli-only and --skill-only cannot be used together", file=sys.stderr)
-        return 2
-    if args.skill_only and not args.agent:
-        print("--skill-only requires --agent", file=sys.stderr)
-        return 2
-
-    update_cli = not args.skill_only
-    update_skill = bool(args.agent) and not args.cli_only
-    results = []
-
-    if update_cli:
-        editable = _editable_source()
-        if editable:
-            message = f"cli=editable source={editable} action=update-source-repo"
-            print(message)
-            results.append(0)
-        else:
-            results.append(_print_or_run_external(_pipx_upgrade_command(), args.dry_run))
-
-    if update_skill:
-        results.append(_print_or_run_external(_skills_command("add", args), args.dry_run))
-
-    return 0 if all(code == 0 for code in results) else 1
-
-
 def cmd_prepare(args: argparse.Namespace) -> int:
     argv = []
     if args.out_root:
@@ -244,7 +160,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     return cmd_backend(
         argparse.Namespace(
             run=str(deck_path.parent),
-            mode="built-in-image-tool",
+            mode="editppt-image-cli",
             tool_name=None,
             tool_call=None,
             model=None,
@@ -315,10 +231,6 @@ def cmd_crop_image(args: argparse.Namespace) -> int:
     return run_script("process_asset_sheet.py", argv)
 
 
-def cmd_queue_repairs(args: argparse.Namespace) -> int:
-    return run_script("queue_page_repairs.py", args.repair_args)
-
-
 def cmd_status(args: argparse.Namespace) -> int:
     argv = [args.run]
     if args.json:
@@ -347,8 +259,23 @@ def cmd_next(args: argparse.Namespace) -> int:
         return print_json(payload) if args.json else _print_next_text(payload)
 
     if dispatchable and slots > 0:
+        if len(pages) == 1:
+            page = find_page(jobs, dispatchable[0])
+            page_id = page.get("page_id")
+            page_dir = page_dir_for(run_dir, page)
+            payload = {
+                "run_dir": str(run_dir),
+                "stage": "rebuild_page",
+                "page_id": page_id,
+                "page_dir": str(page_dir),
+                "next_command": f"{cli_prog()} run record {run_dir} --page {page_id} --agent-id main",
+                "agent_focus": "Rebuild this single page directly in its page directory, then record the page result.",
+            }
+            return print_json(payload) if args.json else _print_next_text(payload)
+
         selected = dispatchable[:slots]
-        prompt_out = Path(tempfile.gettempdir()) / f"{selected[0]}_prompt.md"
+        first_page = find_page(jobs, selected[0])
+        prompt_out = page_dir_for(run_dir, first_page) / "worker-prompt.md"
         payload = {
             "run_dir": str(run_dir),
             "stage": "dispatch_pages",
@@ -368,10 +295,10 @@ def cmd_next(args: argparse.Namespace) -> int:
     if unfinished:
         payload = {
             "run_dir": str(run_dir),
-            "stage": "wait_or_repair",
+            "stage": "wait",
             "active_or_unfinished_pages": unfinished,
             "next_command": f"{cli_prog()} run status {run_dir}",
-            "agent_focus": "Wait for dispatched workers, record results, or queue repairs.",
+            "agent_focus": "Wait for dispatched workers, then record completed page results.",
         }
         return print_json(payload) if args.json else _print_next_text(payload)
 
@@ -394,6 +321,8 @@ def _print_next_text(payload: dict) -> int:
         print(f"dispatchable_pages={', '.join(payload['dispatchable_pages'])}")
     if payload.get("suggested_pages"):
         print(f"suggested_pages={', '.join(payload['suggested_pages'])}")
+    if payload.get("page_dir"):
+        print(f"page_dir={payload['page_dir']}")
     if payload.get("active_or_unfinished_pages"):
         print(f"active_or_unfinished_pages={', '.join(payload['active_or_unfinished_pages'])}")
     print(f"next_command={payload.get('next_command')}")
@@ -401,32 +330,53 @@ def _print_next_text(payload: dict) -> int:
     return 0
 
 
+def _page_worker_template() -> str:
+    text = (SKILL_ROOT / "prompts" / "page-worker.md").read_text(encoding="utf-8")
+    marker = "```text"
+    start = text.find(marker)
+    if start == -1:
+        return text
+    start += len(marker)
+    end = text.find("```", start)
+    if end == -1:
+        return text[start:]
+    return text[start:end].strip()
+
+
+def _resolve_prompt_out(run_dir: Path, page_dir: Path, value: str) -> Path:
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        out = path.resolve()
+    elif path.parts[:1] == ("pages",):
+        out = (run_dir / path).resolve()
+    else:
+        out = (page_dir / path).resolve()
+    try:
+        out.relative_to(page_dir)
+    except ValueError as exc:
+        raise SystemExit(f"Prompt file must live inside page dir: {out}") from exc
+    return out
+
+
 def cmd_prompt_page(args: argparse.Namespace) -> int:
     run_dir = run_dir_from_target(args.run)
-    page_id = args.page if str(args.page).startswith("page_") else f"page_{int(args.page):03d}"
-    content = f"""Rebuild {page_id} for image-to-editable-ppt.
-
-Run directory: {run_dir}
-Page id: {page_id}
-
-Read:
-- pages/{page_id}/page_request.json
-- pages/{page_id}/source.png
-- references/page-decision-tree.md
-- references/image-backend-integration.md
-- references/workflow-contract.md
-- references/manifest-schema.md
-- references/qa-rubric.md
-- prompts/page-worker.md
-
-Only write inside pages/{page_id}/.
-Use page_request.json.image_backend exactly. If it is unavailable, return a blocker.
-Required outputs: manifest.json, imagegen-jobs.json, page.pptx, preview.png,
-split_assets_contact.png, validation.json, page_result.json.
-"""
-    out = Path(args.out)
+    jobs = load_jobs(run_dir)
+    page = find_page(jobs, args.page)
+    page_id = page.get("page_id")
+    page_dir = page_dir_for(run_dir, page)
+    request = read_json(page_dir / "page_request.json")
+    source_image = request.get("source_image") or str(page_dir / "source.png")
+    content = (
+        _page_worker_template()
+        .replace("<absolute run dir>", str(run_dir))
+        .replace("<page_001>", str(page_id))
+        .replace("<absolute page dir>/source.png", str(source_image))
+        .replace("<absolute page dir>", str(page_dir))
+        .replace("<skill root>", str(SKILL_ROOT))
+    )
+    out = _resolve_prompt_out(run_dir, page_dir, args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(content, encoding="utf-8")
+    out.write_text(content.strip() + "\n", encoding="utf-8")
     return print_json({"prompt": str(out), "page_id": page_id, "run_dir": str(run_dir)})
 
 
@@ -434,8 +384,6 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     argv = [args.run, "--page", args.page, "--agent-id", args.agent_id, "--prompt-file", args.prompt_file]
     if args.agent_nickname:
         argv.extend(["--agent-nickname", args.agent_nickname])
-    if args.repair_item_id:
-        argv.extend(["--repair-item-id", args.repair_item_id])
     return run_script("record_page_dispatch.py", argv)
 
 
@@ -446,15 +394,56 @@ def cmd_record(args: argparse.Namespace) -> int:
     )
 
 
-def cmd_sample(args: argparse.Namespace) -> int:
-    argv = [args.run, "--page", args.page]
-    if args.feedback:
-        argv.extend(["--feedback", args.feedback])
-    return run_script("record_sample_page.py", argv)
-
-
 def cmd_finalize(args: argparse.Namespace) -> int:
     return run_script("finalize_deck_run.py", [args.run])
+
+
+def cmd_formula_render_latex(args: argparse.Namespace) -> int:
+    if args.tex_file:
+        tex = Path(args.tex_file).read_text(encoding="utf-8")
+    elif args.tex:
+        tex = args.tex
+    else:
+        raise SystemExit("formula render-latex requires --tex or --tex-file")
+    preamble = ""
+    if args.preamble_file:
+        preamble = Path(args.preamble_file).read_text(encoding="utf-8")
+    if args.preamble:
+        preamble = (preamble + "\n" + args.preamble).strip()
+    try:
+        rendered = render_latex_asset(
+            tex=tex,
+            out=args.out,
+            page_dir=args.page_dir,
+            output_format=args.format,
+            engine=args.engine,
+            preamble=preamble,
+            full_document=args.full_document,
+            display=not args.inline,
+            dpi=args.dpi,
+            timeout=args.timeout,
+            shell_escape=args.shell_escape,
+            keep_workdir=args.keep_workdir,
+        )
+        payload = dict(rendered)
+        if args.fragment:
+            if not args.box:
+                raise FormulaRenderError("--fragment requires --box X,Y,W,H")
+            fragment = formula_image_fragment(
+                formula_id=args.id,
+                image_path=rendered["out"],
+                tex_source=rendered["tex_source"],
+                box_px=args.box,
+                page_dir=args.page_dir,
+                z_index=args.z_index,
+                alt=args.alt,
+            )
+            write_json(fragment, args.fragment)
+            payload["fragment"] = str(Path(args.fragment))
+        return print_json(payload)
+    except FormulaRenderError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -464,23 +453,24 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=HELP_FORMATTER,
         epilog="""What this CLI does:
   - setup/doctor/config manage the local editppt environment and API fallback config.
-  - install/uninstall/update delegate Skill installation to npx skills@latest.
-  - prepare creates a run directory and writes the default built-in image backend.
+  - prepare creates a run directory and writes the unified editppt image backend.
   - run manages deterministic workflow state, prompts, dispatch records, and finalization.
-  - image handles third-party API image fallback and deterministic image file processing.
+  - image generates/edits through Codex OAuth first, then API fallback, and processes image files.
+  - formula renders LaTeX formulas into PPT image assets and manifest fragments.
 
 Typical workflow:
   editppt setup
-  editppt install --agent codex
   editppt prepare deck.pdf
   editppt run next <run>
+  editppt run record <run> --page <page-id> --agent-id <agent-id>
   editppt run finalize <run>
+  editppt formula render-latex pages/page_001 --tex "\\frac{a}{b}" --out assets/formula.svg --box 100,100,300,80 --fragment formula-fragment.json
 
 Use '<command> --help' for exact arguments. For example:
-  editppt install --help
   editppt prepare --help
   editppt run --help
   editppt image --help
+  editppt formula render-latex --help
 """,
     )
     sub = parser.add_subparsers(dest="command", metavar="command", required=True)
@@ -503,74 +493,6 @@ unless --check-api is passed.
     )
     setup.add_argument("--check-api", action="store_true", help="Require API fallback credentials in doctor.")
     setup.set_defaults(func=cmd_setup)
-
-    install = sub.add_parser(
-        "install",
-        help="Install the Skill through npx skills@latest.",
-        description="""Install image-to-editable-ppt for any agent supported by skills@latest.
-
-editppt does not keep an agent allowlist. The --agent value is passed through to
-`npx -y skills@latest add`. Extra args after `--` are appended unchanged.
-""",
-        formatter_class=HELP_FORMATTER,
-        epilog="""Examples:
-  editppt install --agent codex
-  editppt install --agent claude-code -- --local
-  editppt install --agent opencode --dry-run
-""",
-    )
-    install.add_argument("--agent", required=True, metavar="AGENT", help="Agent id passed to npx skills@latest, for example codex, claude-code, or opencode.")
-    install.add_argument("--dry-run", action="store_true", help="Print the npx command without executing it.")
-    install.add_argument("--no-global", dest="global_install", action="store_false", help="Do not add --global to the npx skills command.")
-    install.add_argument("extra_args", nargs=argparse.REMAINDER, help="Extra args after -- are passed through to npx skills@latest.")
-    install.set_defaults(global_install=True)
-    install.set_defaults(func=cmd_install)
-
-    uninstall = sub.add_parser(
-        "uninstall",
-        help="Uninstall the Skill through npx skills@latest.",
-        description="""Uninstall/remove image-to-editable-ppt for an agent via skills@latest.
-
-editppt does not delete agent-specific directories itself. It delegates to
-`npx -y skills@latest remove` and surfaces that command's result.
-""",
-        formatter_class=HELP_FORMATTER,
-        epilog="""Examples:
-  editppt uninstall --agent codex --dry-run
-  editppt uninstall --agent claude-code -- --local
-""",
-    )
-    uninstall.add_argument("--agent", required=True, metavar="AGENT", help="Agent id passed to npx skills@latest.")
-    uninstall.add_argument("--dry-run", action="store_true", help="Print the npx command without executing it.")
-    uninstall.add_argument("--no-global", dest="global_install", action="store_false", help="Do not add --global to the npx skills command.")
-    uninstall.add_argument("extra_args", nargs=argparse.REMAINDER, help="Extra args after -- are passed through to npx skills@latest.")
-    uninstall.set_defaults(global_install=True)
-    uninstall.set_defaults(func=cmd_uninstall)
-
-    update = sub.add_parser(
-        "update",
-        help="Update the CLI and optionally the installed Skill.",
-        description="""Update editppt itself and/or the installed Skill.
-
-Without --agent, update checks the CLI only. With --agent, editppt updates the CLI
-and delegates Skill update/install to npx skills@latest. In editable installs,
-editppt reports the source path instead of running pipx upgrade.
-""",
-        formatter_class=HELP_FORMATTER,
-        epilog="""Examples:
-  editppt update --dry-run
-  editppt update --agent codex --dry-run
-  editppt update --skill-only --agent claude-code -- --local
-""",
-    )
-    update.add_argument("--agent", metavar="AGENT", help="Agent id passed to npx skills@latest for Skill update.")
-    update.add_argument("--cli-only", action="store_true", help="Update/check only the CLI package.")
-    update.add_argument("--skill-only", action="store_true", help="Update/install only the Skill. Requires --agent.")
-    update.add_argument("--dry-run", action="store_true", help="Print planned external commands without executing them.")
-    update.add_argument("--no-global", dest="global_install", action="store_false", help="Do not add --global to the npx skills command.")
-    update.add_argument("extra_args", nargs=argparse.REMAINDER, help="Extra args after -- are passed through to npx skills@latest.")
-    update.set_defaults(global_install=True)
-    update.set_defaults(func=cmd_update)
 
     doctor = sub.add_parser(
         "doctor",
@@ -621,8 +543,8 @@ runtime. API keys are masked in command output.
         description="""Normalize input into an editable-PPT reconstruction run.
 
 This command creates the run directory, copies inputs, writes deck/page manifests,
-extracts note metadata when applicable, and records the default built-in image
-backend. The normal path does not require a separate backend command.
+extracts note metadata when applicable, and records the default editppt image
+CLI backend. The normal path does not require a separate backend command.
 """,
         formatter_class=HELP_FORMATTER,
         epilog="""Examples:
@@ -635,7 +557,7 @@ backend. The normal path does not require a separate backend command.
     prepare.add_argument("--out-root", metavar="DIR", help="Directory that will contain generated run folders.")
     prepare.add_argument("--job-dir", metavar="DIR", help="Use an explicit run directory instead of auto-generating one.")
     prepare.add_argument("--dpi", type=int, metavar="N", help="Rasterization DPI for PDF/PPT inputs.")
-    prepare.add_argument("--max-concurrent-pages", type=int, metavar="N", help="Maximum page workers the parent agent may dispatch at once.")
+    prepare.add_argument("--max-concurrent-pages", type=int, metavar="N", help="Maximum page workers the parent agent may dispatch at once. Default: 6.")
     prepare.set_defaults(func=cmd_prepare)
 
     run = sub.add_parser(
@@ -644,8 +566,7 @@ backend. The normal path does not require a separate backend command.
         description="""Deterministic workflow commands for a prepared run.
 
 Use these commands after editppt prepare. They inspect and update run/page state,
-generate worker prompts, record worker lifecycle events, queue repairs, and
-assemble the final deck.
+generate worker prompts, record worker lifecycle events, and assemble the final deck.
 """,
         formatter_class=HELP_FORMATTER,
     )
@@ -663,7 +584,7 @@ assemble the final deck.
 
     status = run_sub.add_parser(
         "status",
-        help="Show page dispatch and repair status.",
+        help="Show page dispatch status.",
         description="Read page_jobs.json and print active, pending, blocked, and dispatchable pages without modifying state.",
         formatter_class=HELP_FORMATTER,
     )
@@ -676,17 +597,17 @@ assemble the final deck.
         help="Override the run image backend contract.",
         description="""Configure deck_manifest.json.image_backend and copy it into page requests.
 
-Normally editppt prepare records the built-in image backend automatically. Use
-this only when switching to API fallback or a custom image backend.
+Normally editppt prepare records the unified editppt image CLI backend automatically.
+Use this only when forcing OpenAI-compatible API metadata or a custom image backend.
 """,
         formatter_class=HELP_FORMATTER,
         epilog="""Examples:
   editppt run backend <run>
-  editppt run backend <run> --mode cli-api-fallback --model gpt-image-2
+  editppt run backend <run> --mode openai-compatible-api --model openai/gpt-image-2
 """,
     )
     backend.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
-    backend.add_argument("--mode", choices=["built-in-image-tool", "cli-api-fallback"], default="built-in-image-tool", help="Image backend mode. Defaults to the Codex built-in image tool contract.")
+    backend.add_argument("--mode", choices=["editppt-image-cli", "openai-compatible-api"], default="editppt-image-cli", help="Image backend mode. Defaults to the unified editppt image CLI contract.")
     backend.add_argument("--tool-name", metavar="NAME", help="Override backend tool name recorded in the contract.")
     backend.add_argument("--tool-call", metavar="CALL", help="Override backend tool call recorded in the contract.")
     backend.add_argument("--model", metavar="MODEL", help="Image model label for API/CLI fallback.")
@@ -694,17 +615,6 @@ this only when switching to API fallback or a custom image backend.
     backend.add_argument("--runtime-home", metavar="DIR", help="Shared config home. Defaults to ~/.editppt.")
     backend.add_argument("--input-context-policy", metavar="TEXT", help="Policy note for how image inputs must be inspected or passed.")
     backend.set_defaults(func=cmd_backend)
-
-    sample = run_sub.add_parser(
-        "sample",
-        help="Record the approved sample page.",
-        description="Record the main agent's approved sample page and propagate user feedback to remaining pages.",
-        formatter_class=HELP_FORMATTER,
-    )
-    sample.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
-    sample.add_argument("--page", required=True, metavar="PAGE", help="Approved sample page id or number.")
-    sample.add_argument("--feedback", metavar="TEXT", help="User feedback or requirements to propagate to remaining pages.")
-    sample.set_defaults(func=cmd_sample)
 
     prompt_page = run_sub.add_parser(
         "prompt",
@@ -719,7 +629,7 @@ separate because the CLI cannot spawn the worker itself.
     )
     prompt_page.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
     prompt_page.add_argument("--page", required=True, metavar="PAGE", help="Page id such as page_001, or page number such as 1.")
-    prompt_page.add_argument("--out", required=True, metavar="FILE", help="Prompt file to write.")
+    prompt_page.add_argument("--out", required=True, metavar="FILE", help="Prompt file to write inside the page directory. Relative names are resolved under the page dir; pages/page_NNN/... is resolved under the run dir.")
     prompt_page.set_defaults(func=cmd_prompt_page)
 
     dispatch = run_sub.add_parser(
@@ -731,15 +641,14 @@ separate because the CLI cannot spawn the worker itself.
     dispatch.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
     dispatch.add_argument("--page", required=True, metavar="PAGE", help="Page id such as page_001, or page number such as 1.")
     dispatch.add_argument("--agent-id", required=True, metavar="ID", help="Runtime worker/thread id.")
-    dispatch.add_argument("--prompt-file", required=True, metavar="FILE", help="Prompt file used to spawn the worker.")
+    dispatch.add_argument("--prompt-file", required=True, metavar="FILE", help="Prompt file used to spawn the worker. It must resolve inside the page directory.")
     dispatch.add_argument("--agent-nickname", metavar="NAME", help="Optional human-readable worker label.")
-    dispatch.add_argument("--repair-item-id", metavar="ID", help="Repair item id when dispatching a repair worker.")
     dispatch.set_defaults(func=cmd_dispatch)
 
     record = run_sub.add_parser(
         "record",
         help="Record and verify a page-worker result.",
-        description="Validate required page outputs, record hashes, and mark the page recorded.",
+        description="Validate required page outputs, record hashes, and mark the page recorded. Single-page direct rebuilds can be recorded from pending status with --agent-id main.",
         formatter_class=HELP_FORMATTER,
     )
     record.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
@@ -747,10 +656,6 @@ separate because the CLI cannot spawn the worker itself.
     record.add_argument("--agent-id", required=True, metavar="ID", help="Runtime worker/thread id that produced the result.")
     record.add_argument("--page-result", default="page_result.json", metavar="FILE", help="Result file relative to the page directory.")
     record.set_defaults(func=cmd_record)
-
-    repair = run_sub.add_parser("repair", help="Queue page repair items.", add_help=False)
-    repair.add_argument("repair_args", nargs=argparse.REMAINDER)
-    repair.set_defaults(func=cmd_queue_repairs)
 
     finalize = run_sub.add_parser(
         "finalize",
@@ -761,22 +666,88 @@ separate because the CLI cannot spawn the worker itself.
     finalize.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
     finalize.set_defaults(func=cmd_finalize)
 
-    image = sub.add_parser(
-        "image",
-        help="Generate/edit images through API fallback and process image assets.",
-        description="""Image API fallback and deterministic image-file handling.
+    formula = sub.add_parser(
+        "formula",
+        help="Render LaTeX formulas into PPT image assets.",
+        description="""Render LaTeX formulas into image assets for page manifests.
 
-Use generate/edit/batch for third-party OpenAI-compatible image APIs. Use import
-to record images produced by built-in tools. Use process-sheet and crop for
-deterministic asset extraction inside page directories.
+Use this when formula fidelity matters more than formula editability. The agent
+transcribes the source formula to LaTeX, then this command renders it to SVG,
+PNG, or PDF and can write a manifest image fragment.
 """,
         formatter_class=HELP_FORMATTER,
+    )
+    formula_sub = formula.add_subparsers(dest="formula_command", metavar="formula-command", required=True)
+
+    formula_render = formula_sub.add_parser(
+        "render-latex",
+        help="Render one LaTeX formula to SVG, PNG, or PDF.",
+        description="""Render one LaTeX formula into an image asset.
+
+This is the high-fidelity formula path. It relies on a local TeX engine
+(xelatex, lualatex, or pdflatex). SVG output additionally requires dvisvgm or
+pdf2svg; PNG output requires ImageMagick. The rendered formula is an image in
+PowerPoint, not an editable equation object.
+""",
+        formatter_class=HELP_FORMATTER,
+        epilog="""Examples:
+  editppt formula render-latex pages/page_001 --tex "\\frac{a}{b}" --out assets/f1.svg --box 100,100,300,80 --fragment formula-fragment.json
+  editppt formula render-latex pages/page_001 --tex-file formula.tex --out assets/f1.png --format png --dpi 300 --box 100,100,300,80 --fragment formula-fragment.json
+  editppt formula render-latex --tex "\\begin{bmatrix}a&b\\\\c&d\\end{bmatrix}" --out /tmp/matrix.svg
+""",
+    )
+    formula_render.add_argument("page_dir", nargs="?", metavar="PAGE_DIR", help="Optional page directory. Relative --out paths are resolved under it.")
+    formula_render.add_argument("--tex", metavar="TEXT", help="LaTeX formula body. Wrapped in display math unless --inline or --full-document is used.")
+    formula_render.add_argument("--tex-file", metavar="FILE", help="Read LaTeX formula body or full document from a file.")
+    formula_render.add_argument("--out", required=True, metavar="FILE", help="Rendered output path. Relative paths use PAGE_DIR when provided.")
+    formula_render.add_argument("--format", choices=["svg", "png", "pdf"], metavar="FMT", help="Output format. Defaults to --out suffix or svg.")
+    formula_render.add_argument("--engine", default="auto", metavar="ENGINE", help="LaTeX engine: auto, xelatex, lualatex, pdflatex, or an executable path.")
+    formula_render.add_argument("--inline", action="store_true", help="Wrap --tex in inline math instead of display math.")
+    formula_render.add_argument("--full-document", action="store_true", help="Treat --tex/--tex-file as a complete LaTeX document.")
+    formula_render.add_argument("--preamble", metavar="TEXT", help="Extra LaTeX preamble inserted into the default wrapper.")
+    formula_render.add_argument("--preamble-file", metavar="FILE", help="Read extra LaTeX preamble from a file.")
+    formula_render.add_argument("--dpi", type=int, default=300, metavar="N", help="PNG rasterization DPI.")
+    formula_render.add_argument("--timeout", type=int, default=120, metavar="SEC", help="Render/conversion timeout in seconds.")
+    formula_render.add_argument("--shell-escape", action="store_true", help="Allow LaTeX shell escape. Keep off unless the formula package requires it.")
+    formula_render.add_argument("--keep-workdir", metavar="DIR", help="Copy the temporary TeX workdir here for debugging.")
+    formula_render.add_argument("--fragment", metavar="FILE", help="Write a manifest image fragment for this formula.")
+    formula_render.add_argument("--box", metavar="X,Y,W,H", help="Source-pixel placement box for --fragment.")
+    formula_render.add_argument("--id", default="formula", metavar="ID", help="Formula/image id used in the manifest fragment.")
+    formula_render.add_argument("--alt", metavar="TEXT", help="Alt text for the formula image in the manifest fragment.")
+    formula_render.add_argument("--z-index", type=int, default=220, metavar="N", help="Image z_index in the manifest fragment.")
+    formula_render.set_defaults(func=cmd_formula_render_latex)
+
+    image = sub.add_parser(
+        "image",
+        help="Generate/edit images and process image assets.",
+        description="""Unified image generation/editing and deterministic image-file handling.
+
+Use generate/edit/batch for Codex OAuth first, with OpenAI-compatible API fallback
+when local Codex auth is unavailable. Use process-sheet and crop for deterministic
+asset extraction inside page directories.
+""",
+        formatter_class=HELP_FORMATTER,
+        epilog="""Backend selection:
+  Codex OAuth uses ~/.codex/auth.json or CODEX_AUTH_FILE.
+  API fallback uses ~/.editppt/config.yaml or OPENAI_API_KEY, OPENAI_BASE_URL,
+  and IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL.
+
+Setup:
+  codex login
+  editppt config --api-key "your-api-key" --model gpt-image-2
+  editppt config --api-key "your-api-key" --base-url https://example.test/v1 --model openai/gpt-image-2
+
+Patterns:
+  editppt image edit --image pages/page_001/source.png --prompt-file clean-base.prompt.txt --out pages/page_001/assets/clean-base.png
+  editppt image edit --image pages/page_001/source.png --prompt-file asset-sheet.prompt.txt --out pages/page_001/assets/asset-sheet.png
+  editppt image batch --input jobs.jsonl --out-dir pages/page_001/assets --concurrency 6
+""",
     )
     image_sub = image.add_subparsers(dest="image_command", metavar="image-command", required=True)
 
     for name, help_text in (
-        ("generate", "Create a new image through the configured API fallback."),
-        ("edit", "Edit one or more images through the configured API fallback."),
+        ("generate", "Create a new image through the unified image backend."),
+        ("edit", "Edit one or more images through the unified image backend."),
         ("batch", "Generate multiple images from JSONL input."),
     ):
         image_api = image_sub.add_parser(name, help=help_text, add_help=False)
@@ -827,9 +798,13 @@ deterministic asset extraction inside page directories.
 
 
 def main() -> int:
+    raw_argv = sys.argv[1:]
+    if len(raw_argv) >= 2 and raw_argv[0] == "image" and raw_argv[1] in {"generate", "edit", "batch"}:
+        return run_script("image_gen.py", [raw_argv[1], *raw_argv[2:]])
+
     parser = build_parser()
     args, extra = parser.parse_known_args()
-    for attr in ("image_args", "process_args", "record_image_args", "repair_args"):
+    for attr in ("image_args", "process_args", "record_image_args"):
         if hasattr(args, attr):
             getattr(args, attr).extend(extra)
             extra = []

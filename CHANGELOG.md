@@ -6,18 +6,35 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ### Improvements
 
-- Add the package-level `editppt` CLI and move deterministic runtime code out of the installable skill resources.
-- Add a cross-agent image backend contract with built-in image tooling preferred and API/CLI fallback support.
-- Add a sample-page approval flow for multi-page inputs while keeping the approved sample page as the final result for that page.
+- Add the skill-local `editppt` CLI package and move deterministic runtime code into the installable skill resources.
+- Add a cross-agent image backend contract centered on the unified `editppt image` CLI.
+- Prefer Codex OAuth inside `editppt image` and fall back to OpenAI-compatible API credentials only when local Codex auth is unavailable.
+- Dispatch multi-page inputs directly to page workers according to concurrency slots.
 - Move API fallback configuration to `~/.editppt/config.yaml`.
-- Refine the public `editppt` command tree into setup/install/update, run workflow, and image handling groups with agent-friendly help text.
+- Refine the public `editppt` command tree into setup/config, run workflow, formula, and image handling groups with agent-friendly help text.
+- Store only page artifacts, hashes, and validation outputs in page result records.
+- Automatically preserve non-widescreen source aspect ratios by preparing custom slide canvases and content boxes.
+- Support concurrent `editppt image batch` edit jobs with `image`/`images` inputs across Codex OAuth and OpenAI-compatible API backends.
+- Increase the default multi-page worker concurrency to 6.
+- Expose image backend integration guidance through `editppt image` help.
+- Use page-local correction before record in run orchestration.
+
+### Fixes
+
+- Align single-page direct recording, page-worker prompt paths, and asset-sheet helper examples with the actual `editppt` runtime state machine.
 
 ### Documentation
 
-- Update Chinese and English README files for multi-agent usage, backend configuration, and sample-page flow.
+- Update Chinese and English README files for multi-agent usage, backend configuration, and direct page-worker dispatch.
 - Document third-party image API fallback guidance and keep API keys in the user-level `~/.editppt/config.yaml`.
 - Align installable Skill prompts and references with the unified CLI and image backend terminology.
-- Consolidate installable Skill workflow references and repair prompts into a shorter CLI-first flow contract.
+- Consolidate installable Skill workflow references into a shorter CLI-first flow contract.
+- Clarify that the agent reconstructing a page is responsible for that page's single self-check, while record/finalize commands only consume validation outputs.
+- Replace the CLI contracts reference with a CLI helper quick-start and fold workflow guidance into `SKILL.md`.
+- Add bilingual README update instructions for the skill and skill-local CLI.
+- Shorten bilingual image backend and API fallback configuration guidance.
+- Clarify that installing the skill-local `editppt` CLI is required.
+- Simplify README install and update instructions into agent-facing prompts.
 
 ## 0.1.0
 

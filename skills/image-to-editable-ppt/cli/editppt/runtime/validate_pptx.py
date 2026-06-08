@@ -19,6 +19,7 @@ NS = {
 
 ALLOWED_SOURCE_TYPES = {
     "imagegen",
+    "latex-rendered-formula",
     "user-provided",
     "user-approved-rasterization",
     "source-derived-rasterization",
@@ -306,20 +307,6 @@ def validate_deck(args):
             validation_path = root / validation_path
         if not manifest_path.exists():
             report["page_manifests_missing"].append(str(manifest_path))
-        else:
-            try:
-                raw_manifest = read_manifest(manifest_path)
-                manifest, violations = normalize_for_validation(raw_manifest)
-                violations.extend(page_contract_violations(manifest))
-                violations.extend(quality_contract_violations(raw_manifest))
-                if violations:
-                    report["page_contract_violations"].append(
-                        {"manifest": str(manifest_path), "violations": violations}
-                    )
-            except Exception as exc:
-                report["page_contract_violations"].append(
-                    {"manifest": str(manifest_path), "violations": [{"reason": str(exc)}]}
-                )
         if not validation_path.exists():
             report["page_validation_missing"].append(str(validation_path))
         else:
@@ -554,7 +541,7 @@ def main():
             continue
         report["asset_provenance_checked"] += 1
         source_type = entry.get("source_type")
-        provenance_note = entry.get("provenance_note") or entry.get("qa_note")
+        provenance_note = entry.get("provenance_note")
         if source_type not in ALLOWED_SOURCE_TYPES:
             report["invalid_asset_provenance"].append(
                 {"path": key, "field": "source_type", "value": source_type}
