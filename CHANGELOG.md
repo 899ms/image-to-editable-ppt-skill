@@ -4,45 +4,47 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+## 0.2.0-beta.1
+
 ### Features
 
-- Add the installable skill-local `editppt` CLI package with setup, doctor, config, prepare, run, image, and formula command groups.
-- Add a unified image backend through `editppt image`, using Codex OAuth when available and OpenAI-compatible API fallback credentials from `~/.editppt/config.yaml`.
-- Add concurrent `editppt image batch` support for generate/edit jobs, including reference-image edit inputs.
-- Add `editppt formula render-latex` for rendering LaTeX formulas into PPT image assets and manifest fragments.
-- Add source-aspect-preserving slide preparation with automatic custom slide canvases and content boxes for non-widescreen inputs.
+- Add the installable skill-local `editppt` CLI package with setup, doctor, config, prepare, run, image, and formula command groups. (#3)
+- Add a unified image backend through `editppt image`, using Codex OAuth when available and OpenAI-compatible API fallback credentials from `~/.editppt/config.yaml`. (#3)
+- Add concurrent `editppt image batch` support for generate/edit jobs, including reference-image edit inputs. (#3)
+- Add `editppt formula render-latex` for rendering LaTeX formulas into PPT image assets and manifest fragments. (#3)
+- Add source-aspect-preserving slide preparation with automatic custom slide canvases and content boxes for non-widescreen inputs. (#3)
 
 ### Improvements
 
-- Move deterministic runtime code from loose skill scripts into the self-contained `editppt` CLI package and remove legacy script entrypoints from the installable skill root.
-- Rework the workflow around CLI-managed run state: `editppt prepare`, `editppt run next`, `prompt`, `dispatch`, `record`, and `finalize`.
-- Dispatch multi-page inputs directly to page workers according to runtime concurrency slots, with a default concurrency of 6.
-- Rebuild the final PPTX from recorded page manifests during `editppt run finalize`, making `manifest.json` the authoritative final assembly source.
-- Validate each page PPTX against its page manifest during `editppt run record` so page-local outputs cannot bypass the manifest contract.
-- Require source-pixel coordinates for positioned manifest objects and reject manifests that omit required `box_px`, `points_px`, or `polygon_px` fields.
-- Add deterministic text fitting in the manifest builder to clamp oversized first-draft text boxes before preview and PPTX output.
-- Route foreground bitmap assets through source-faithful asset sheets and remove the public source-crop image workflow.
-- Store only page artifacts, hashes, and validation outputs in page result records.
-- Simplify page correction flow so page reconstructors fix page-local issues before record instead of creating repair queues.
-- Expose image backend usage, asset-sheet processing, formula rendering, and run orchestration guidance through agent-friendly CLI help.
+- Move deterministic runtime code from loose skill scripts into the self-contained `editppt` CLI package and remove legacy script entrypoints from the installable skill root. (#3)
+- Rework the workflow around CLI-managed run state: `editppt prepare`, `editppt run next`, `prompt`, `dispatch`, `record`, and `finalize`. (#3)
+- Dispatch multi-page inputs directly to page workers according to runtime concurrency slots, with a default concurrency of 6. (#3)
+- Rebuild the final PPTX from recorded page manifests during `editppt run finalize`, making `manifest.json` the authoritative final assembly source. (#3)
+- Validate each page PPTX against its page manifest during `editppt run record` so page-local outputs cannot bypass the manifest contract. (#3)
+- Require source-pixel coordinates for positioned manifest objects and reject manifests that omit required `box_px`, `points_px`, or `polygon_px` fields. (#3)
+- Add deterministic text fitting in the manifest builder to clamp oversized first-draft text boxes before preview and PPTX output. (#3)
+- Route foreground bitmap assets through source-faithful asset sheets and remove the public source-crop image workflow. (#3)
+- Store only page artifacts, hashes, and validation outputs in page result records. (#3)
+- Simplify page correction flow so page reconstructors fix page-local issues before record instead of creating repair queues. (#3)
+- Expose image backend usage, asset-sheet processing, formula rendering, and run orchestration guidance through agent-friendly CLI help. (#3)
 
 ### Fixes
 
-- Resolve `editppt image process-sheet --asset-sheet-source` relative paths from the page directory.
-- Accept structured `text_inventory` entries during PPTX validation.
-- Align single-page direct recording, page-worker prompt paths, and asset-sheet helper examples with the actual `editppt` runtime state machine.
-- Reject recorded or final page manifests whose positioned objects would otherwise fall back to default top-left locations.
-- Preserve custom deck size metadata when finalizing decks from manifests instead of forcing all outputs into widescreen mode.
+- Resolve `editppt image process-sheet --asset-sheet-source` relative paths from the page directory. (#3)
+- Accept structured `text_inventory` entries during PPTX validation. (#3)
+- Align single-page direct recording, page-worker prompt paths, and asset-sheet helper examples with the actual `editppt` runtime state machine. (#3)
+- Reject recorded or final page manifests whose positioned objects would otherwise fall back to default top-left locations. (#3)
+- Preserve custom deck size metadata when finalizing decks from manifests instead of forcing all outputs into widescreen mode. (#3)
 
 ### Documentation
 
-- Translate installable skill documentation and agent metadata to English.
-- Rewrite the skill workflow and page-worker prompt around the `editppt` CLI-first contract.
-- Replace legacy architecture, state-machine, subagent, repair, and imagegen references with a shorter `cli-helper.md`, manifest schema, page decision tree, and QA rubric.
-- Document that page manifests must be sufficient to rebuild page PPTX files and final decks.
-- Document source-pixel coordinate requirements and deterministic text-fitting behavior for page manifests.
-- Require absolute worker prompt paths, real page-worker dispatch for multi-page runs, and top-level `passed` in page validation outputs.
-- Update Chinese and English README files for CLI installation, update instructions, backend configuration, multi-agent usage, and reconstruction limits.
+- Translate installable skill documentation and agent metadata to English. (#3)
+- Rewrite the skill workflow and page-worker prompt around the `editppt` CLI-first contract. (#3)
+- Replace legacy architecture, state-machine, subagent, repair, and imagegen references with a shorter `cli-helper.md`, manifest schema, page decision tree, and QA rubric. (#3)
+- Document that page manifests must be sufficient to rebuild page PPTX files and final decks. (#3)
+- Document source-pixel coordinate requirements and deterministic text-fitting behavior for page manifests. (#3)
+- Require absolute worker prompt paths, real page-worker dispatch for multi-page runs, and top-level `passed` in page validation outputs. (#3)
+- Update Chinese and English README files for CLI installation, update instructions, backend configuration, multi-agent usage, and reconstruction limits. (#3)
 
 ## 0.1.0
 
