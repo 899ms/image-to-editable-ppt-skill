@@ -32,7 +32,8 @@ Deterministic validation is necessary but not sufficient. Whoever reconstructs a
 - Alpha edges have no obvious chroma-key remnants.
 - Every final raster asset has provenance.
 - Assets that `page-decision-tree.md` marks as requiring source-faithful separation must not be missing, must not be replaced with a similar but different symbol, and must not use a source type forbidden by the decision tree.
-- Source-derived raster assets must satisfy the exception conditions in `page-decision-tree.md` and record the source region.
+- Foreground photos, screenshots, image blocks, icons, pictograms, symbols, logo-like marks, semantic badges, and trend/status icons must use compliant source-faithful asset-sheet separation unless the decision tree classifies them as native structural shapes.
+- Direct source-image snippets are not valid substitutes for foreground asset-sheet separation.
 
 ## Background QA
 
@@ -67,6 +68,7 @@ Must be fixed in the current page:
 - Page is missing a buildable manifest/page.pptx.
 - Required visual objects are missing.
 - Object-source decisions violate `page-decision-tree.md`.
+- Any foreground photo, screenshot, image block, icon, pictogram, symbol, logo-like mark, semantic badge, or trend/status icon is implemented with a direct source-image snippet instead of compliant asset-sheet separation.
 - Complex-background clean base is visibly distorted or has become a different background.
 - A straight-corner source rectangle was rebuilt as a rounded rectangle without evidence that the source had rounded corners.
 - Text font size or position visibly deviates from the source and causes crowding, overflow, or occlusion.
@@ -74,7 +76,7 @@ Must be fixed in the current page:
 Warnings:
 
 - Minor visual drift in non-icon, non-critical decorations.
-- Minor line-width, antialiasing, proportion, shadow, or detail differences in icons.
+- Minor line-width, antialiasing, proportion, shadow, or detail differences in icons after compliant asset-sheet separation.
 - Some non-critical decorations are not perfectly identical.
 - Recorded low-risk font differences.
 

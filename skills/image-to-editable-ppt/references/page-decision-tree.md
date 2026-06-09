@@ -16,8 +16,7 @@ Before the three-step decision process, build a page inventory:
 - All readable text.
 - Background type: solid color, gradient, regular texture, photo, illustration, dashboard, spatial/product image, complex graphic background.
 - Whether the background is occluded by text, icons, labels, stickers, hand-drawn marks, or other foreground objects that will be rebuilt later.
-- Foreground visual objects: icons, pictograms, logo-like marks, photos, textures, illustrations, people, plants, devices, hand-drawn marks, stickers, decorative lines, badges.
-- Large regular content that can be precisely cropped: rectangular illustrations, rectangular photos, regular screenshots, map frames, video covers, regular chart blocks, and similar objects.
+- Foreground visual objects: icons, pictograms, logo-like marks, foreground photos, screenshots, image blocks, textures, illustrations, people, plants, devices, hand-drawn marks, stickers, decorative lines, badges.
 - PPT native element candidates: text, text boxes, cards, panels, tables, axes, lines, flow boxes, dividers, simple arrows.
 - Formula candidates: objective functions, constraints, matrices, fractions, roots, cases, multiline equation groups, ordinary math expressions. Formulas must be listed separately and must not be grouped with ordinary text.
 - Source glyph height, container height, line spacing, and density for each text level.
@@ -57,7 +56,7 @@ Use `editppt image edit --image <source.png>` for background repair or clean bas
 
 - Complex photos, spaces, real product images, complex dashboards, or complex illustrated backgrounds are occluded by foreground text or icons.
 - After removing text, labels, icons, stickers, or hand-drawn marks, occluded areas need to be completed.
-- Background and foreground are stuck together, and simple cropping or native shapes cannot preserve source identity.
+- Background and foreground are stuck together, and native shapes cannot preserve source identity.
 
 The clean base target is the same background after removing foreground objects that will be rebuilt later. It is not a new image with a similar theme. The prompt must treat the source as both the edit target and strict visual reference, and must state:
 
@@ -96,40 +95,11 @@ Do not screenshot a whole dashboard, whole table, whole card, or whole chart to 
 
 The second step decides only the source of non-text foreground visual objects. Foreground objects must enter `visual_inventory` before their source is chosen.
 
-### 2.1 Large Regular Content That May Be Precisely Cropped
+### 2.1 Foreground Assets Must Use Image Edit Separation
 
-Only large, regular, precisely croppable content may use `editppt image crop` or source-derived rasters:
+Every non-text foreground visual object must use `editppt image edit --image <source.png>` asset-sheet separation, including:
 
-- Rectangular illustrations.
-- Rectangular photos.
-- Regular screenshots.
-- Map frames.
-- Video covers.
-- Regular chart blocks or regular image blocks.
-- Large non-text visual regions that are naturally isolated, have clear boundaries, and are not attached to background structure.
-
-The decision criterion is whether the object can be precisely cropped:
-
-- It has a clear rectangular or regular boundary.
-- The crop box can cover the complete object with safe padding.
-- It does not require complex transparent edges.
-- It does not require cutting out an irregular silhouette.
-- It will not crop in text, icons, labels, or structural objects that must be independently rebuilt later.
-- As a movable image object, it will not pretend that a whole page, whole card, whole table, or whole chart has been made editable.
-- It does not contain readable text that must become a native text box.
-
-When using source-derived rasters:
-
-- Crop with `editppt image crop`; do not hand-write temporary code.
-- Record `source_region_px` or `source_bbox_px`.
-- Record `source_type: "source-derived-rasterization"`.
-- Add safe padding to the crop box, usually at least 6-12 px.
-- If transparency is needed, use border background removal and review alpha edges.
-
-### 2.2 Other Foreground Assets Default to Image Edit Separation
-
-Except for the large precisely croppable regular content in 2.1, all other non-text foreground visual objects default to `editppt image edit --image <source.png>` asset-sheet separation:
-
+- Foreground photos, foreground screenshots, video covers, foreground image blocks, map fragments, chart-image fragments, and rectangular illustrations.
 - Icons, pictograms, symbols, logo-like marks.
 - Badges, stickers, tapes, stamps, corner tags.
 - Hand-drawn marks, hand-drawn arrows, decorative underlines, circles, checkmarks, crosses.
@@ -137,9 +107,11 @@ Except for the large precisely croppable regular content in 2.1, all other non-t
 - Semantic small icons, trend icons, warning symbols, and status symbols in dashboards or charts.
 - Leaves, plants, people, animals, computers, phones, devices, scene illustrations, and any other non-text object that carries page style.
 
-These objects must not be approximated with native primitives, even if they appear to be made from circles, lines, rectangles, or ellipses. The criterion is not "can it be drawn"; the criterion is whether it carries meaning, identity, or visual style.
+These objects must not be approximated with native primitives, even if they appear to be made from circles, lines, rectangles, or ellipses. The criterion is not "can it be drawn"; the criterion is whether it is a foreground visual asset rather than a layout primitive.
 
-### 2.3 Asset Sheet Prompt Principles
+Do not use direct source-image snippets as a substitute for source-faithful asset-sheet separation.
+
+### 2.2 Asset Sheet Prompt Principles
 
 An asset sheet is source-faithful separation, not redraw. The prompt must require:
 
@@ -154,7 +126,7 @@ An asset sheet is source-faithful separation, not redraw. The prompt must requir
 
 The key color can be cyan, green, magenta, red, orange, or another high-saturation pure color. The selection criterion is not a fixed color; the color must not appear in the current assets and must be sufficiently distant from all subject colors, stroke colors, shadow colors, and highlight colors. For example, green subjects should not use `#00ff00`, blue/purple subjects should not use cyan/blue families, purple or magenta subjects should not use `#ff00ff`, and white subjects should not use white or light gray backgrounds. If `process-sheet` background removal makes the subject fade, cuts off edges, or leaves key-color remnants, first regenerate an asset sheet with a different key color, then consider tuning removal parameters.
 
-### 2.4 Asset Sheet Reconciliation and Fixes
+### 2.3 Asset Sheet Reconciliation and Fixes
 
 After an asset sheet is generated, reconcile it:
 
@@ -222,7 +194,7 @@ Formula asset record requirements:
 - `asset_provenance.source_type` must be `latex-rendered-formula`.
 - `asset_provenance.source` points to the corresponding `.tex` file.
 - `provenance_note` explains that the formula was rendered from LaTeX and that visual fidelity is prioritized over formula object-level editability.
-- Do not assemble formulas with Unicode subscripts/superscripts, do not hand-write many formula text boxes, and do not crop formulas from the source.
+- Do not assemble formulas with Unicode subscripts/superscripts, do not hand-write many formula text boxes, and do not use source-image snippets for formulas.
 
 If the machine lacks a TeX engine, SVG/PNG converter, or LaTeX compilation fails:
 
@@ -322,7 +294,7 @@ Must be fixed in the current page:
 
 - Background clean base visibly drifts and becomes a new background with a related theme.
 - Background still contains text, icons, labels, stickers, or hand-drawn marks that will be rebuilt later.
-- An object that step 2 marks as requiring image-edit separation is approximated with native primitives or non-compliant source crop.
+- An object that step 2 marks as requiring image-edit separation is approximated with native primitives or direct source-image snippets.
 - Step 2 asset sheet has missing objects, wrong symbols, missing strokes, severe deformation, background attachment, or text contamination.
 - Main readable text remains inside an image and is not made native text.
 - The same text, icon, or decorative object appears both in the image layer and as a native object.

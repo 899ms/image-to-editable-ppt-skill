@@ -31,6 +31,9 @@ FORBIDDEN_IMAGE_BACKEND_PHRASES = {
     "image-backend-repair.md",
     "skills/image-to-editable-ppt/scripts",
     "requirements.txt",
+    "editppt image crop",
+    "--crop-box",
+    "source-derived-rasterization",
 }
 SCAN_ROOTS = [
     ROOT / "README.md",

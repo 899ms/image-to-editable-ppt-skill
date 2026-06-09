@@ -1,5 +1,4 @@
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -8,8 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_DIR = ROOT / "skills/image-to-editable-ppt/cli/editppt/runtime"
 sys.path.insert(0, str(RUNTIME_DIR))
 
-from PIL import Image  # noqa: E402
-from validate_pptx import ALLOWED_SOURCE_TYPES, alpha_edge_violations, quality_contract_violations, required_texts_from_manifest  # noqa: E402
+from validate_pptx import ALLOWED_SOURCE_TYPES, quality_contract_violations, required_texts_from_manifest  # noqa: E402
 from build_pptx_from_manifest import shape_xml  # noqa: E402
 
 
@@ -49,8 +47,8 @@ class QualityContractTest(unittest.TestCase):
         manifest["shapes"] = [{"type": "rect", "box_px": [0, 0, 100, 40]}]
         self.assertEqual([], quality_contract_violations(manifest))
 
-    def test_source_derived_assets_are_allowed(self):
-        self.assertIn("source-derived-rasterization", ALLOWED_SOURCE_TYPES)
+    def test_source_derived_assets_are_not_allowed(self):
+        self.assertNotIn("source-derived-rasterization", ALLOWED_SOURCE_TYPES)
 
     def test_latex_rendered_formula_assets_are_allowed(self):
         self.assertIn("latex-rendered-formula", ALLOWED_SOURCE_TYPES)
@@ -73,16 +71,6 @@ class QualityContractTest(unittest.TestCase):
         self.assertIn('prst="roundRect"', xml)
         self.assertIn('name="adj"', xml)
         self.assertIn('fmla="val 5000"', xml)
-
-    def test_alpha_edge_helper_reports_visible_pixels_touching_edge(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "clipped.png"
-            image = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
-            for x in range(0, 5):
-                image.putpixel((x, 5), (0, 0, 255, 255))
-            image.save(path)
-            violations = alpha_edge_violations(path)
-        self.assertTrue(violations)
 
     def test_structured_text_inventory_flattens_to_required_strings(self):
         required = required_texts_from_manifest(

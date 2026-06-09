@@ -23,11 +23,11 @@ When you need parameter details for the image backend, input images, batch JSONL
 The manifest must reuse `page_request.json.slide` and `page_request.json.content_box`. Do not convert the page to 16:9 yourself and do not recalculate the canvas. All `box_px`, `points_px`, and `polygon_px` values are in `source.png` pixels; the runtime maps them into `content_box` so the source image is not stretched.
 
 Goal:
-Rebuild the source page as object-level editable PowerPoint. All page object categories, native shape boundaries, separable asset boundaries, and source-derived raster exceptions must follow `references/page-decision-tree.md`. Do not invent an object-source strategy outside this prompt.
+Rebuild the source page as object-level editable PowerPoint. All page object categories, native shape boundaries, and separable asset boundaries must follow `references/page-decision-tree.md`. Do not invent an object-source strategy outside this prompt.
 
 Before writing `manifest.json`, every image/page must complete the three-step decision process in `page-decision-tree.md`:
 1. Background recognition and repair: decide whether the background can be restored through PPT structural objects/deterministic runtime, or whether `editppt image edit --image <source.png>` is required to create a source-preserving clean base.
-2. Foreground asset separation: decide which large, regular regions can be cropped precisely; all other icons, illustrations, decorations, and similar foreground assets must use `editppt image` edit mode for source-faithful asset-sheet separation according to the decision tree.
+2. Foreground asset separation: every non-text foreground visual object, including foreground photos, screenshots, illustrations, icons, decorations, and similar assets, must use `editppt image` edit mode for source-faithful asset-sheet separation according to the decision tree.
 3. PPT native element reconstruction: text, text boxes, simple rectangles/rounded rectangles, simple arrows, tables, and similar objects are rebuilt with native PPT structural objects, with font size, corner geometry, and layout calibrated. Formulas do not use native text; first transcribe them to LaTeX, then use `editppt formula render-latex` to render independent image assets into the PPT.
 
 The Page dir must contain:
@@ -55,15 +55,13 @@ The Page dir must contain:
 }
 ```
 
-Use `editppt image generate/edit/batch` to generate clean bases, background repairs, and asset sheets. Use `editppt formula render-latex` to generate formula image assets and manifest image fragments. Which objects must be separated with `editppt image edit --image <source.png>`, which objects may use native shapes or source-derived rasters, and which formulas must be converted to LaTeX are all governed by `page-decision-tree.md`. Deterministic CLI/runtime tools may only be used for normalization, recording, background removal, splitting, cropping, formula rendering, building, validation, and QA.
+Use `editppt image generate/edit/batch` to generate clean bases, background repairs, and asset sheets. Use `editppt formula render-latex` to generate formula image assets and manifest image fragments. Which objects must be separated with `editppt image edit --image <source.png>`, which objects may use native shapes, and which formulas must be converted to LaTeX are all governed by `page-decision-tree.md`. Deterministic CLI/runtime tools may only be used for normalization, recording, background removal, splitting, formula rendering, building, validation, and QA.
 
 `manifest.json` must also contain:
 
 - `visual_inventory`: inventory of non-text visual objects, at least recording id, description, decision, and corresponding asset/background.
 - `background_strategy`: background handling mode, source-consistency constraints, whether local repair is used, whether a full imagegen clean base is used, and why.
 - `quality_checks`: `font_size_calibrated`, `visual_inventory_matched`, `background_strategy_checked`, and `shape_corner_geometry_checked` must all be true.
-
-The allowed scope and crop requirements for source-derived raster assets are defined in `page-decision-tree.md`. If a source-derived raster is used, it must be created with `editppt image crop` and must record `source_region_px` or `source_bbox_px`.
 
 Before returning:
 

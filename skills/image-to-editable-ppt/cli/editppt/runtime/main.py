@@ -202,35 +202,6 @@ def cmd_record_image(args: argparse.Namespace) -> int:
     return run_script("record_imagegen_result.py", args.record_image_args)
 
 
-def cmd_crop_image(args: argparse.Namespace) -> int:
-    argv = [
-        args.page_dir,
-        "--skip-chroma",
-        "--skip-split",
-        "--crop-source",
-        args.source,
-        "--crop-box",
-        args.box,
-        "--crop-out",
-        args.out,
-    ]
-    if args.job_id:
-        argv.extend(["--job-id", args.job_id])
-    if args.padding:
-        argv.extend(["--crop-padding", str(args.padding)])
-    if args.remove_border_bg:
-        argv.append("--crop-remove-border-bg")
-    if args.manifest:
-        argv.extend(["--manifest", args.manifest])
-    if args.source_type:
-        argv.extend(["--source-type", args.source_type])
-    if args.provenance_note:
-        argv.extend(["--provenance-note", args.provenance_note])
-    if args.approval_note:
-        argv.extend(["--approval-note", args.approval_note])
-    return run_script("process_asset_sheet.py", argv)
-
-
 def cmd_status(args: argparse.Namespace) -> int:
     argv = [args.run]
     if args.json:
@@ -723,8 +694,8 @@ PowerPoint, not an editable equation object.
         description="""Unified image generation/editing and deterministic image-file handling.
 
 Use generate/edit/batch for Codex OAuth first, with OpenAI-compatible API fallback
-when local Codex auth is unavailable. Use process-sheet and crop for deterministic
-asset extraction inside page directories.
+when local Codex auth is unavailable. Use process-sheet for deterministic
+asset-sheet splitting inside page directories.
 """,
         formatter_class=HELP_FORMATTER,
         epilog="""Backend selection:
@@ -769,30 +740,6 @@ Patterns:
     )
     process_sheet.add_argument("process_args", nargs=argparse.REMAINDER)
     process_sheet.set_defaults(func=cmd_process_asset_sheet)
-
-    crop = image_sub.add_parser(
-        "crop",
-        help="Crop a source or generated image into a page asset.",
-        description="Crop a region, optionally remove border background, and update manifest provenance.",
-        formatter_class=HELP_FORMATTER,
-    )
-    crop.add_argument("page_dir", metavar="PAGE_DIR", help="Page directory that owns the output asset.")
-    crop.add_argument("--source", required=True, metavar="FILE", help="Source image path, relative to page dir unless absolute.")
-    crop.add_argument("--box", required=True, metavar="L,T,R,B", help="Crop box in source pixels: left,top,right,bottom.")
-    crop.add_argument("--out", required=True, metavar="FILE", help="Output asset path, relative to page dir unless absolute.")
-    crop.add_argument("--job-id", metavar="ID", help="Optional imagegen job id to mark processed.")
-    crop.add_argument("--padding", type=int, default=0, metavar="PX", help="Optional crop padding in pixels.")
-    crop.add_argument("--remove-border-bg", action="store_true", help="Remove plain border background from the cropped asset.")
-    crop.add_argument("--manifest", default="manifest.json", metavar="FILE", help="Manifest to update with provenance.")
-    crop.add_argument(
-        "--source-type",
-        default="source-derived-rasterization",
-        choices=["imagegen", "user-provided", "user-approved-rasterization", "source-derived-rasterization"],
-        help="Provenance source type recorded in the manifest.",
-    )
-    crop.add_argument("--provenance-note", metavar="TEXT", help="Provenance note written to manifest.")
-    crop.add_argument("--approval-note", metavar="TEXT", help="Optional approval note written to manifest.")
-    crop.set_defaults(func=cmd_crop_image)
 
     return parser
 

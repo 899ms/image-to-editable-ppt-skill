@@ -23,13 +23,12 @@ editppt                         - top-level CLI for setup, run orchestration, im
 |   |-- dispatch                - record that a real page worker/subagent was spawned
 |   |-- record                  - validate required page outputs and record page result hashes
 |   `-- finalize                - assemble recorded pages and validate the final PPTX
-|-- image                       - generate, edit, import, crop, and process bitmap assets
+|-- image                       - generate, edit, import, and process bitmap assets
 |   |-- generate                - create a new image from a text prompt
 |   |-- edit                    - edit a source image for clean bases or source-faithful asset sheets
 |   |-- batch                   - run multiple generate/edit jobs from JSONL with concurrency
 |   |-- import                  - copy a selected image into the page dir and record provenance
-|   |-- process-sheet           - split a chroma-key asset sheet into transparent assets
-|   `-- crop                    - crop allowed source-derived raster regions from source.png
+|   `-- process-sheet           - split a chroma-key asset sheet into transparent assets
 `-- formula                     - render formula assets from agent-transcribed LaTeX
     `-- render-latex            - render LaTeX into SVG/PNG/PDF plus a manifest fragment
 ```
@@ -192,15 +191,6 @@ editppt image process-sheet pages/page_001 \
 ```
 
 The asset sheet key color is determined by the generation prompt. `process-sheet` samples the key color from the image edge. Cyan, green, magenta, and similar colors can all be candidates. Prefer a pure color that does not appear in the current assets and is far from the subject colors. If background removal makes the subject fade, cuts off edges, or leaves key-color remnants, first regenerate the asset sheet with a new key color.
-
-Crop allowed regular source-derived content:
-
-```bash
-editppt image crop pages/page_001 \
-  --source source.png \
-  --box 100,120,460,320 \
-  --out assets/chart-block.png
-```
 
 ## Formula Commands
 

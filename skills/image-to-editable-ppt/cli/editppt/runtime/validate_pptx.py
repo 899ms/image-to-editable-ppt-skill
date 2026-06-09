@@ -22,7 +22,6 @@ ALLOWED_SOURCE_TYPES = {
     "latex-rendered-formula",
     "user-provided",
     "user-approved-rasterization",
-    "source-derived-rasterization",
 }
 REQUIRED_QUALITY_CHECKS = {
     "font_size_calibrated",
@@ -77,7 +76,7 @@ def page_contract_violations(manifest):
             )
         if (
             is_full_slide_image(image, slide)
-            and source_type in {"user-provided", "user-approved-rasterization", "source-derived-rasterization"}
+            and source_type in {"user-provided", "user-approved-rasterization"}
             and text_boxes
         ):
             violations.append(
@@ -89,16 +88,6 @@ def page_contract_violations(manifest):
             )
 
     return violations
-
-
-def source_region_size(entry):
-    region = entry.get("source_region_px")
-    if isinstance(region, list) and len(region) == 4:
-        return float(region[2]), float(region[3])
-    bbox = entry.get("source_bbox_px")
-    if isinstance(bbox, list) and len(bbox) == 4:
-        return abs(float(bbox[2]) - float(bbox[0])), abs(float(bbox[3]) - float(bbox[1]))
-    return None
 
 
 def quality_contract_violations(manifest):
@@ -158,34 +147,6 @@ def quality_contract_violations(manifest):
                 )
 
     return violations
-
-
-def alpha_edge_violations(image_path, edge_padding=3):
-    try:
-        from PIL import Image
-    except Exception as exc:
-        return [{"field": "asset_alpha", "reason": f"unable to import Pillow for asset edge check: {exc}"}]
-
-    try:
-        image = Image.open(image_path).convert("RGBA")
-    except Exception as exc:
-        return [{"field": "asset_alpha", "reason": f"unable to open asset for edge check: {exc}"}]
-
-    alpha = image.getchannel("A")
-    bbox = alpha.point(lambda value: 255 if value > 8 else 0).getbbox()
-    if not bbox:
-        return [{"field": "asset_alpha", "reason": "asset has no visible opaque pixels"}]
-    left, top, right, bottom = bbox
-    width, height = image.size
-    problems = []
-    if left < edge_padding or top < edge_padding or width - right < edge_padding or height - bottom < edge_padding:
-        problems.append(
-            {
-                "field": "asset_alpha",
-                "reason": "visible pixels touch the asset edge; inspect source/contact sheet or add safe padding when this asset requires edge-safe alpha",
-            }
-        )
-    return problems
 
 
 def pixel_authoring_violations(manifest):
@@ -586,22 +547,6 @@ def main():
             report["invalid_asset_provenance"].append(
                 {"path": key, "field": "approval_note", "value": entry.get("approval_note")}
             )
-        if source_type in {"user-approved-rasterization", "source-derived-rasterization"} and not (
-            entry.get("source_region_px") or entry.get("source_bbox_px")
-        ):
-            report["invalid_asset_provenance"].append(
-                {
-                    "path": key,
-                    "field": "source_region_px/source_bbox_px",
-                    "value": entry.get("source_region_px") or entry.get("source_bbox_px"),
-                }
-            )
-        if source_type == "source-derived-rasterization":
-            region_size = source_region_size(entry)
-            if region_size and (region_size[0] <= 0 or region_size[1] <= 0):
-                report["invalid_asset_provenance"].append(
-                    {"path": key, "field": "source_region_px/source_bbox_px", "value": entry.get("source_region_px") or entry.get("source_bbox_px")}
-                )
         source = entry.get("source")
         if not source:
             report["missing_provenance_sources"].append({"path": key, "source": source})
@@ -611,13 +556,6 @@ def main():
             source_path = manifest_base / source_path
         if not source_path.exists():
             report["missing_provenance_sources"].append({"path": key, "source": str(source)})
-        if source_type == "source-derived-rasterization" and entry.get("require_edge_safe_alpha") is True:
-            asset_file = Path(key)
-            if not asset_file.is_absolute():
-                asset_file = manifest_base / asset_file
-            for problem in alpha_edge_violations(asset_file):
-                report["invalid_asset_provenance"].append({"path": key, **problem})
-
     report["page_contract_violations"] = (
         authoring_violations + page_contract_violations(manifest) + quality_contract_violations(raw_manifest)
     )

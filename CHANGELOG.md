@@ -6,6 +6,7 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ### Improvements
 
+- Remove the public `editppt image crop` path and route foreground image assets through source-faithful asset sheets.
 - Add the skill-local `editppt` CLI package and move deterministic runtime code into the installable skill resources.
 - Add a cross-agent image backend contract centered on the unified `editppt image` CLI.
 - Prefer Codex OAuth inside `editppt image` and fall back to OpenAI-compatible API credentials only when local Codex auth is unavailable.

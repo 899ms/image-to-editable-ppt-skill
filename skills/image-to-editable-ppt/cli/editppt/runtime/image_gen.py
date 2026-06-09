@@ -119,7 +119,7 @@ Slide reconstruction patterns:
 
 Output:
   Write outputs under the page directory when used in a deck run. Record selected
-  images with editppt image import, then use process-sheet or crop when needed.
+  images with editppt image import, then use process-sheet when asset-sheet splitting is needed.
 """
 
 GENERATE_HELP_EPILOG = """\

@@ -38,6 +38,7 @@ skills/image-to-editable-ppt/
 - Multi-page inputs must be truly dispatched to subagents/page workers. If no subagent capability is available, stop and report this to the user; do not degrade into serial parent-agent page reconstruction.
 - All image generation, image editing, background repair, transparent bitmap assets, and asset sheets must use `editppt image generate/edit/batch`.
 - Page-level reconstruction strategy must follow the References.
+- Foreground visual objects, including foreground photos, screenshots, illustrations, icons, pictograms, symbols, logo-like marks, semantic badges, and trend/status icons, must use image-backend source-faithful asset-sheet separation unless the page-decision tree explicitly classifies them as native structural shapes.
 - Page workers use `prompts/page-worker.md`.
 - A full-slide `source.png` with editable text overlaid on top is not an acceptable fallback. The final output must be a currently openable, structurally valid `.pptx`.
 
@@ -62,10 +63,10 @@ Each page worker owns one `pages/page_NNN/` directory:
 - Write only its own page directory.
 - Use `page_request.json.image_backend`.
 - Analyze text, structure, background, and foreground visual objects.
-- Use the page decision tree to choose native text, native shapes, LaTeX-rendered formula assets, clean bases, asset sheets, or source-derived assets.
+- Use the page decision tree to choose native text, native shapes, LaTeX-rendered formula assets, clean bases, and asset sheets.
 - Use `editppt image generate/edit/batch` to generate or edit required bitmaps.
 - Use `editppt formula render-latex` to render formula image assets.
-- Use `editppt image import`, `editppt image process-sheet`, and `editppt image crop` to record and process generated assets.
+- Use `editppt image import` and `editppt image process-sheet` to record and process generated asset sheets.
 - Write `manifest.json`, `page.pptx`, `preview.png`, `split_assets_contact.png`, `validation.json`, and `page_result.json`.
 - As the page reconstructor, self-check `preview.png`, `split_assets_contact.png`, and `validation.json`; if a page-local issue is found, fix it inside the current page before returning.
 
@@ -153,7 +154,7 @@ Required states:
 `imagegen-jobs.json` is the page-local provenance/job record. Only these forced file states are kept:
 
 - `recorded`: `editppt image import` has copied the selected output and written hash/metadata.
-- `processed`: `editppt image process-sheet` or `editppt image crop` has completed background removal, splitting, or cropping.
+- `processed`: `editppt image process-sheet` has completed background removal and splitting.
 
 ## Delivery Principles
 
@@ -161,7 +162,7 @@ Required states:
 - If a page-local issue is found, the current page author fixes it directly.
 - The final output must be a currently openable, structurally valid `.pptx`.
 - A full-slide `source.png` with editable text overlaid on top is not an acceptable fallback.
-- Minor drift in icons, bitmap assets, fonts, positions, shapes, and similar details may be delivered as warnings with the PPT.
+- Minor drift in icons, bitmap assets, fonts, positions, shapes, and similar details may be delivered as warnings only after the object-source decision follows the page decision tree. Missing asset edges, forbidden source types for foreground assets, or replacing required asset-sheet separation with a direct source-image snippet are current-page failures, not warnings.
 
 ## Update Skill
 
