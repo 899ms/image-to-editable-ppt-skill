@@ -39,11 +39,20 @@ This repository packages the `image-to-editable-ppt` skill.
 
 ## Release Flow
 
+- This repository uses two release tracks:
+  - `beta`: development/pre-release integration branch.
+  - `main`: stable release branch.
+- Feature branches should usually branch from `beta` and open PRs back to `beta`.
+- Stable release PRs should merge `beta` into `main` after beta validation is complete.
+- Beta releases use SemVer prerelease tags from commits contained in `beta`, for example `v0.2.0-beta.1`.
+- Stable releases use SemVer tags from commits contained in `main`, for example `v0.2.0`.
+- Do not create long-lived `develop`, `alpha`, or `stable` branches unless the branch model is explicitly revised.
 - Release changes should go through a release PR before tagging.
-- Move the relevant `## Unreleased` entries into a version section such as `## 0.1.0`; omit empty subsections.
-- After the release PR is merged, tag the merge commit with a SemVer tag such as `v0.1.0`, then push the tag.
+- Move the relevant `## Unreleased` entries into the exact version section that matches the tag, such as `## 0.2.0-beta.1` or `## 0.2.0`; omit empty subsections.
+- Add PR references to release changelog entries before tagging, for example `(#12)`.
+- After the release PR is merged, tag the merge commit with the matching SemVer tag, then push the tag.
 - Pushing `v*` tags triggers `.github/workflows/release.yml`.
-- The release workflow extracts GitHub Release notes from the matching `CHANGELOG.md` version section.
+- The release workflow extracts GitHub Release notes from the matching `CHANGELOG.md` version section, marks prerelease tags as GitHub prereleases, and rejects tags created from the wrong branch.
 - The release workflow uploads `image-to-editable-ppt-skill-v*.zip`, which contains only the installable `image-to-editable-ppt` skill directory.
 - This repository does not use a ClawHub publish flow.
 
