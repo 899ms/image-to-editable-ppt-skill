@@ -134,7 +134,7 @@ The normal workflow is:
 3. Each page worker owns one page directory and completes reconstruction, self-check, and page-local correction there.
 4. Build one page manifest per page with editable text, simple shapes, and positioned image assets.
 5. Use `editppt` commands to record dispatches, page results, and accepted status.
-6. Assemble the final `.pptx`, copy `.pptx` speaker notes when present, and run deck validation.
+6. Assemble the final `.pptx` by concatenating `pages/page_NNN/page.pptx` files in page order, copy `.pptx` speaker notes when present, and run deck validation.
 
 ## Output Layout
 
@@ -168,7 +168,7 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
     │   ├── page_request.json                 # Page request and image backend
     │   ├── imagegen-jobs.json                # Image generation/editing calls and result records for this page
     │   ├── assets/                           # Independent image assets for this page
-    │   ├── page.pptx                         # Single-page PPTX
+    │   ├── page.pptx                         # Single-page PPTX; finalize concatenates these files in page order
     │   ├── preview.png                       # Reconstructed page preview
     │   ├── split_assets_contact.png          # Asset-splitting inspection image
     │   ├── manifest.json                     # Text, shape, and asset description for this page

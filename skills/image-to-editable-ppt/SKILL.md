@@ -51,7 +51,7 @@ The parent agent owns orchestration and user interaction:
 - For a multi-page input, do not write any page reconstruction artifacts inside `pages/page_NNN/`; use only `editppt run next` to obtain pages that need dispatch.
 - Generate prompts for pages that need work, spawn page workers, and record dispatches with `editppt run dispatch`.
 - Record page worker results with `editppt run record`.
-- Assemble and validate the final PPTX with `editppt run finalize`.
+- Assemble and validate the final PPTX with `editppt run finalize`. Final assembly concatenates the recorded page-level `page.pptx` files in page order; it does not rebuild the final deck from page manifests.
 - Report progress, final path, and validation result to the user.
 
 The parent agent must not create or modify page-local reconstruction outputs in multi-page runs, must not repeat page-level visual QA already completed by page workers, and must not hand-write key state JSON.
@@ -128,6 +128,8 @@ editppt run record <run> --page page_001 --agent-id main
 ### Phase 4: Finalize
 
 Read the finalize examples in `references/cli-helper.md` and the deck-level QA points in `references/qa-rubric.md`.
+
+`editppt run finalize` treats each recorded `pages/page_NNN/page.pptx` as the authoritative page output. It assembles the final deck by copying the first slide from each page PPTX in page order, preserving that page worker's self-checked slide output. Do not use manifest-based whole-deck reconstruction as a fallback.
 
 When `editppt run next <run>` returns the finalize stage:
 

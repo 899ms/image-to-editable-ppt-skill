@@ -91,7 +91,7 @@ Purpose: after the parent agent directly completes the current single page, self
 editppt run finalize <run>
 ```
 
-Purpose: after recording is complete, assemble and validate the final PPTX.
+Purpose: after recording is complete, assemble and validate the final PPTX by concatenating recorded page-level `page.pptx` files in page order. The final deck is not rebuilt from page manifests.
 
 ## Common Multi-Page Commands
 
@@ -131,7 +131,7 @@ Purpose: after the page worker writes `manifest.json`, `page.pptx`, `preview.png
 editppt run finalize <run>
 ```
 
-Purpose: after all pages are recorded, assemble, validate, and output the final PPTX.
+Purpose: after all pages are recorded, assemble, validate, and output the final PPTX. Final assembly copies the first slide from each recorded `pages/page_NNN/page.pptx` into the final deck, preserving the page worker's validated output instead of reinterpreting `manifest.json` to rebuild the slide.
 
 Concurrency slots come from `page_jobs.json.max_concurrent_pages`; the default is 6. In normal flow, prefer `editppt run next` to determine the next action. `editppt run status` is only for debugging or manual inspection.
 

@@ -134,7 +134,7 @@ skill 通常会完成这些步骤：
 3. 每个 page worker 负责自己的页面目录，完成页面重建、自检和 page-local 修正。
 4. 每页创建 manifest，重建可编辑文本、简单形状和图片资产。
 5. 用 `editppt` 命令记录 dispatch、page result 和 accepted 状态。
-6. 主 agent 组装最终 `.pptx`，复制 `.pptx` 页面备注，并运行 deck validation。
+6. 主 agent 按页顺序拼接各 `pages/page_NNN/page.pptx` 生成最终 `.pptx`，复制 `.pptx` 页面备注，并运行 deck validation。
 
 ## 输出结构
 
@@ -168,7 +168,7 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
     │   ├── page_request.json                 # 页面请求和 image backend
     │   ├── imagegen-jobs.json                # 本页图片生成/编辑调用和结果记录
     │   ├── assets/                           # 本页拆出的独立图片资产
-    │   ├── page.pptx                         # 本页单页 PPTX
+    │   ├── page.pptx                         # 本页单页 PPTX；finalize 会按页序拼接这些文件
     │   ├── preview.png                       # 本页重建预览图
     │   ├── split_assets_contact.png          # 本页资产切分检查图
     │   ├── manifest.json                     # 本页文本、形状和资产描述
