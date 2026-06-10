@@ -246,7 +246,9 @@ def doctor(args):
     if hints["paddle_token"] == "unset":
         print(
             "text hints: ASK THE USER once — a free PaddleOCR token makes text hints content-aware "
-            "(recognized text + cleaner blocks, noticeably better text fidelity). They can apply at "
+            "(recognized text + cleaner blocks, noticeably better text fidelity). The free personal "
+            "quota is currently more than enough for this skill, so applying is risk-free with no "
+            "extra cost. They can apply at "
             "{url} and you run `{cmd}`; or they can choose to continue with the offline detector. "
             "Wait for their choice before reconstructing pages, then do not ask again.".format(
                 url=hints["apply_url"], cmd=hints["configure_command"]

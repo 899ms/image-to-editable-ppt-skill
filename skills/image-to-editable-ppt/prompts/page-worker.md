@@ -33,6 +33,8 @@ Before writing `manifest.json`, every image/page must complete the three-step de
 2. Foreground asset separation: every non-text foreground visual object, including foreground photos, screenshots, illustrations, icons, decorations, and similar assets, must use `editppt image` edit mode for source-faithful asset-sheet separation according to the decision tree.
 3. PPT native element reconstruction: text, text boxes, simple rectangles/rounded rectangles, simple arrows, tables, and similar objects are rebuilt with native PPT structural objects, with font size, corner geometry, and layout calibrated. Formulas do not use native text; first transcribe them to LaTeX, then use `editppt formula render-latex` to render independent image assets into the PPT.
 
+Execute in that order. The text hints sitting in your page dir belong to step 3 — do not start consuming them before the background and foreground decisions are recorded, because nativizing text first locks in wrong choices (text that belongs to a logo, a UI screenshot, or a to-be-separated asset must not become a native text box, and which text needs clean-base removal depends on step 1). Doing steps 1-2 first costs no wall-clock time: submit ALL step-1/2 image jobs as one `editppt image batch` and fill the text boxes from the hints while those jobs run.
+
 Before building `manifest.json`, verify every non-text visual object:
 
 - It appears in `visual_inventory`.
@@ -80,7 +82,7 @@ Use `editppt image generate/edit/batch` to generate clean bases, background repa
   - every line shape must include `points_px`.
   Missing object coordinates are a current-page failure, even if a separately generated `page.pptx` looks correct.
 - Text sizing and positions come from measurement, not estimation:
-  - `text_hints.json` and the labeled overlay `text_hints.png` are already in your page dir (written during prepare; the `backend` field says which detector produced them). Read them before writing `text_boxes`; if they are missing, generate them with `editppt page hints {{PAGE_DIR}}`;
+  - `text_hints.json` and the labeled overlay `text_hints.png` are already in your page dir (written during prepare; the `backend` field says which detector produced them). They belong to step 3: read them after `background_strategy` and `visual_inventory` decisions are recorded, ideally while the step-1/2 image jobs run; if they are missing, generate them with `editppt page hints {{PAGE_DIR}}`;
   - copy each matched line's measured `box_px` and font size (`font_pt_if_cjk` for CJK text, `font_pt_if_latin` for Latin) into the text box, and add `"font_size_source": "measured"` to boxes sized this way so the builder keeps the measured size;
   - hints are ADVISORY and may miss lines: before building, fill every missed text from your own reading of the source and give it the font size of its size_group;
   - same-level text must use exactly one font size: lines sharing a size_group get the same size, and when assembling the final page keep same-level text identical even where hints disagree slightly;

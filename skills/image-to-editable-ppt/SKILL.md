@@ -33,7 +33,7 @@ These rules are stated once here; the workflow and references below build on the
 - Deterministic validation is a structure gate, not a waiver for object-source decisions. `validation.json.passed=true` never makes a forbidden foreground fallback acceptable.
 - `manifest.json` is the authoritative page build source for both page-level validation and final deck assembly. `page.pptx` must be generated from that manifest; a visually acceptable page PPTX produced by separate page-local code is not enough, because finalize rebuilds the deck from manifests.
 - Positioned manifest objects carry source-pixel coordinates: `text_boxes[]` and `images[]` require `box_px`, non-line `shapes[]` require `box_px`, and line shapes require `points_px`. Missing coordinates are record/finalize failures.
-- Text sizes and positions come from measurement: `editppt prepare` writes per-page `text_hints.json`/`text_hints.png` next to each `source.png`; fill `text_boxes` from their measured `box_px` and font sizes (tagging them with `"font_size_source": "measured"`), regenerating with `editppt page hints <page_dir>` when missing. Keep deterministic runtime fitting enabled as the overflow guard.
+- Text sizes and positions come from measurement: `editppt prepare` writes per-page `text_hints.json`/`text_hints.png` next to each `source.png`. The hints belong to the third reconstruction step — background and foreground asset decisions come first; fill `text_boxes` from the measured `box_px` and font sizes (tagging them with `"font_size_source": "measured"`), regenerating with `editppt page hints <page_dir>` when missing. Keep deterministic runtime fitting enabled as the overflow guard.
 - Page workers are driven by prompts generated from `prompts/page-worker.md`.
 
 ## Roles
@@ -65,7 +65,7 @@ editppt prepare <input...>
 
 After this completes, there must be a run directory, `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, and each page must have `source.png` plus `page_request.json`.
 
-Prepare also writes per-page text hints. Whenever `editppt doctor` or prepare reports that no PaddleOCR token is configured (offline fallback), ask the user once before reconstructing any page: a free token from https://aistudio.baidu.com/account/accessToken stored via `editppt config --paddle-ocr-token <token>` makes the hints content-aware and noticeably improves text fidelity, and `editppt run hints <run>` regenerates the current run's hints in place. Wait for their choice; if they decline or want to proceed, continue with the offline hints and do not ask again.
+Prepare also writes per-page text hints. Whenever `editppt doctor` or prepare reports that no PaddleOCR token is configured (offline fallback), ask the user once before reconstructing any page: a free token from https://aistudio.baidu.com/account/accessToken stored via `editppt config --paddle-ocr-token <token>` makes the hints content-aware and noticeably improves text fidelity, and `editppt run hints <run>` regenerates the current run's hints in place. Tell the user the free personal quota is currently more than enough for this skill — applying is risk-free with no extra cost. Wait for their choice; if they decline or want to proceed, continue with the offline hints and do not ask again.
 
 ### Phase 2: Dispatch Pages
 

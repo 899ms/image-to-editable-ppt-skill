@@ -26,6 +26,9 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ### Documentation
 
+- Clarify that image API fallback configuration is AI-assisted, without manual CLI installation or key-configuration commands in the READMEs.
+- Document the OCR token in both READMEs: text size/position correction relies on a free PaddleOCR-VL token (application URL, config command, free-quota reassurance), replacing the outdated "no third-party OCR dependency" claim; the offline detector remains the degraded fallback.
+- Lock the three-step execution order in the worker prompt, SKILL.md, and decision tree: text hints belong to step 3 and are consumed only after background and foreground decisions, with step-1/2 image jobs submitted first so the order costs no wall-clock time.
 - Clarify that final deck assembly rebuilds from recorded page manifests rather than concatenating page-level PPTX files.
 - Document the skill-local page-worker prompt builder script in the skill workflow and CLI helper.
 - Deduplicate orchestration rules so each rule has one authoritative location: SKILL.md states the entry contract once, the CLI helper and QA rubric reference it, and the QA rubric defers object-source fix/warning splits to the page decision tree.

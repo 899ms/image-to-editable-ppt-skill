@@ -166,6 +166,8 @@ Exceptions are text that is part of brand or background identity rather than ord
 
 These exceptions should be explained in `visual_inventory` or `asset_provenance`. Do not disguise main titles, subtitles, body text, table text, legends, axis labels, numbers, tags, or button text as exceptions.
 
+Do not start this section before the section 1 and 2 decisions are recorded — the hints make text the easiest step, but nativizing text first locks in object-source choices that backgrounds and foreground assets must decide.
+
 Do not guess font sizes or positions by eye. `editppt prepare` already distributed the measurements: every page dir contains `text_hints.json` and the labeled overlay `text_hints.png` (the `backend` field records whether the OCR service or the built-in detector produced them). If they are missing, regenerate with:
 
 ```bash
