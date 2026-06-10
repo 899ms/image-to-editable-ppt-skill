@@ -4,16 +4,33 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+### Features
+
+- Add `editppt page hints`: dependency-free text-line detection and measurement on `source.png` (per-tile binarization, bridge-tolerant XY-cut segmentation, ink metrics). It outputs advisory `text_hints.json` and a labeled `text_hints.png` overlay so the page author fills `text_boxes` positions and font sizes from measurement instead of visual estimation.
+- Distribute text hints during prepare: every page directory receives `text_hints.json` and the labeled `text_hints.png` overlay alongside its `source.png`, so page workers start with measurements in place. With a PaddleOCR-VL token (`PADDLE_OCR_TOKEN` env var or `~/.editppt/config.yaml`), every input type is OCR'd in a single batch job — PDFs are submitted directly and image/PPTX page sources are bundled into a temporary PDF first — with text blocks locally re-measured and rescaled to each page's resolution. Without a token or on failure, the built-in offline detector runs per page; pages where the OCR layout model collapses (dense diagrams classified as one figure, <=2 text lines while the offline detector finds 6+) automatically fall back to the offline result. `--no-text-hints` skips the step.
+- Add `editppt run hints` to regenerate a prepared run's text hints in place (e.g. right after configuring a PaddleOCR token mid-run), and make the missing-token notice an explicit ask-the-user-once checkpoint before page reconstruction instead of a fire-and-forget tip.
+- Add `editppt config --paddle-ocr-token` and first-use guidance: doctor reports the active text-hints backend and, when no token is configured, prepare and doctor point to the token application page (https://aistudio.baidu.com/account/accessToken). The token is stored masked in `~/.editppt/config.yaml` alongside the image API credentials.
+- Snap measured font sizes to design levels: detected lines are clustered into size groups (same-level text gets exactly one font size instead of per-line jitter), exposed as `size_group` in the hints output.
+- Trust measured font sizes in the deterministic builder: text boxes tagged `"font_size_source": "measured"` are clamped only at the geometric fit limit instead of the conservative 0.9 safety shrink, which made correctly sized text systematically smaller than the source. Hand-written boxes keep the existing conservative behavior.
+
+### Fixes
+
+- Fix page-worker prompt truncation: a nested code fence in `prompts/page-worker.md` cut the generated worker prompt off before the manifest field requirements, the pre-return checklist, and the return format. The prompt builder now matches the last closing fence so nested fences cannot truncate the template.
+
 ### Improvements
 
 - Move page-worker prompt assembly out of the installable CLI and into a skill-local prompt builder script.
 - Remove the `editppt run prompt` subcommand so the CLI no longer reads skill prompt templates or reference files.
 - Keep CLI environment diagnostics scoped to CLI config, dependencies, and image backend readiness without requiring skill-root discovery.
+- Replace path-like prompt placeholders with explicit `{{NAME}}` tokens and fail the prompt build when any placeholder remains unfilled.
 
 ### Documentation
 
 - Clarify that final deck assembly rebuilds from recorded page manifests rather than concatenating page-level PPTX files.
 - Document the skill-local page-worker prompt builder script in the skill workflow and CLI helper.
+- Deduplicate orchestration rules so each rule has one authoritative location: SKILL.md states the entry contract once, the CLI helper and QA rubric reference it, and the QA rubric defers object-source fix/warning splits to the page decision tree.
+- Drop SKILL.md from the page-worker required reading list so workers load only page-level references instead of the parent orchestration contract.
+- Broaden skill description triggers, add a CLI availability check to the entry contract, and document non-pipx install fallbacks (`uv tool install`, `pip install --user`).
 
 ## 0.2.0-beta.1
 

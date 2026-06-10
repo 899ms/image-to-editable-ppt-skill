@@ -27,13 +27,10 @@ Deterministic validation is necessary but not sufficient. Whoever reconstructs a
 
 - `visual_inventory` covers all required non-text visual objects.
 - Every required non-text visual object has an independent representation unless it is explicitly recorded as background.
-- The source decision for every non-text visual object must follow `page-decision-tree.md`. QA does not define another page object classification rule; it only checks whether the manifest, asset provenance, preview, and contact sheet follow that decision tree.
+- The source decision for every non-text visual object must follow `page-decision-tree.md`. QA does not define another page object classification rule; it only checks whether the manifest, asset provenance, preview, and contact sheet follow that decision tree — including that no asset marked for source-faithful separation is missing, replaced with a similar but different symbol, approximated with native primitives, or substituted with a direct source-image snippet.
 - Asset-sheet splitting results have no fused objects, missing edges, wrong names, fragments, or cross-object shadows.
 - Alpha edges have no obvious chroma-key remnants.
 - Every final raster asset has provenance.
-- Assets that `page-decision-tree.md` marks as requiring source-faithful separation must not be missing, must not be replaced with a similar but different symbol, and must not use a source type forbidden by the decision tree.
-- Foreground photos, screenshots, image blocks, icons, pictograms, symbols, logo-like marks, semantic badges, and trend/status icons must use compliant source-faithful asset-sheet separation unless the decision tree classifies them as native structural shapes.
-- Direct source-image snippets are not valid substitutes for foreground asset-sheet separation.
 
 ## Background QA
 
@@ -61,23 +58,18 @@ Deterministic validation is necessary but not sufficient. Whoever reconstructs a
 
 ## Check Results
 
-Must be fixed in the current page:
+For everything related to object-source decisions — backgrounds, foreground assets, native shapes, formulas — the authoritative fix-versus-warning split is the "Current-Page Fixes and Warning Decisions" section of `page-decision-tree.md`; do not re-derive it here.
+
+In addition, the following are QA-level failures that must be fixed in the current page:
 
 - Input cannot be normalized.
 - Final PPTX cannot be opened.
 - Page is missing a buildable manifest/page.pptx.
 - Required visual objects are missing.
-- Object-source decisions violate `page-decision-tree.md`.
-- Any foreground photo, screenshot, image block, icon, pictogram, symbol, logo-like mark, semantic badge, or trend/status icon is implemented with a direct source-image snippet instead of compliant asset-sheet separation.
-- Complex-background clean base is visibly distorted or has become a different background.
-- A straight-corner source rectangle was rebuilt as a rounded rectangle without evidence that the source had rounded corners.
 - Text font size or position visibly deviates from the source and causes crowding, overflow, or occlusion.
 
-Warnings:
+Warnings that may be delivered with the current PPT:
 
 - Minor visual drift in non-icon, non-critical decorations.
 - Minor line-width, antialiasing, proportion, shadow, or detail differences in icons after compliant asset-sheet separation.
-- Some non-critical decorations are not perfectly identical.
 - Recorded low-risk font differences.
-
-Warnings can be delivered with the current PPT.

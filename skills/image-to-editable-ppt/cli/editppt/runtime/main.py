@@ -69,6 +69,8 @@ def cmd_config(args: argparse.Namespace) -> int:
         argv.extend(["--model", args.model])
     if args.import_codex_ppt:
         argv.append("--import-codex-ppt")
+    if getattr(args, "paddle_ocr_token", None):
+        argv.extend(["--paddle-ocr-token", args.paddle_ocr_token])
     return run_script("runtime_env.py", argv)
 
 
@@ -133,6 +135,11 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     if not deck_path.exists():
         print(f"prepare reported a missing deck_manifest.json path: {deck_path}", file=sys.stderr)
         return 1
+    if not getattr(args, "no_text_hints", False):
+        # Best-effort: distribute per-page text measurements alongside the
+        # page sources so workers start with hints already in place.
+        if run_script("deck_text_hints.py", [str(deck_path.parent)]) != 0:
+            print("warning: text hints generation failed; workers can run `editppt page hints` per page", file=sys.stderr)
     return cmd_backend(
         argparse.Namespace(
             run=str(deck_path.parent),
@@ -355,6 +362,7 @@ def build_parser() -> argparse.ArgumentParser:
   - setup/doctor/config manage the local editppt environment and API fallback config.
   - prepare creates a run directory and writes the unified editppt image backend.
   - run manages deterministic workflow state, dispatch records, result records, and finalization.
+  - page measures text geometry: hints reports text line boxes and font sizes from source ink.
   - image generates/edits through Codex OAuth first, then API fallback, and processes image files.
   - formula renders LaTeX formulas into PPT image assets and manifest fragments.
 
@@ -433,6 +441,7 @@ runtime. API keys are masked in command output.
     config.add_argument("--base-url", help="OpenAI-compatible base URL, for example https://api.openai.com/v1.")
     config.add_argument("--clear-base-url", action="store_true", help="Remove OPENAI_BASE_URL from the config file.")
     config.add_argument("--model", help="Default image model for API fallback.")
+    config.add_argument("--paddle-ocr-token", metavar="TOKEN", help="PaddleOCR-VL token for content-aware text hints. Apply at https://aistudio.baidu.com/account/accessToken.")
     config.add_argument("--import-codex-ppt", action="store_true", help="Import compatible values from ~/.codex-ppt-skill/.env when present.")
     config.set_defaults(func=cmd_config)
 
@@ -457,6 +466,7 @@ CLI backend. The normal path does not require a separate backend command.
     prepare.add_argument("--job-dir", metavar="DIR", help="Use an explicit run directory instead of auto-generating one.")
     prepare.add_argument("--dpi", type=int, metavar="N", help="Rasterization DPI for PDF/PPT inputs.")
     prepare.add_argument("--max-concurrent-pages", type=int, metavar="N", help="Maximum concurrent page dispatch slots. Default: 6.")
+    prepare.add_argument("--no-text-hints", action="store_true", help="Skip per-page text hint generation after preparing pages.")
     prepare.set_defaults(func=cmd_prepare)
 
     run = sub.add_parser(
@@ -540,6 +550,20 @@ Use this only when forcing OpenAI-compatible API metadata or a custom image back
     record.add_argument("--page-result", default="page_result.json", metavar="FILE", help="Result file relative to the page directory.")
     record.set_defaults(func=cmd_record)
 
+    run_hints = run_sub.add_parser(
+        "hints",
+        help="Regenerate per-page text hints for a prepared run.",
+        description="Regenerate text_hints.json/png for every page (e.g. after configuring a PaddleOCR token mid-run).",
+        formatter_class=HELP_FORMATTER,
+    )
+    run_hints.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
+    run_hints.add_argument("--timeout", type=int, default=300, help="OCR job timeout in seconds.")
+    run_hints.add_argument("--no-overlay", action="store_true", help="Skip the labeled overlay images.")
+    run_hints.set_defaults(func=lambda args: run_script(
+        "deck_text_hints.py",
+        [args.run, "--timeout", str(args.timeout)] + (["--no-overlay"] if args.no_overlay else []),
+    ))
+
     finalize = run_sub.add_parser(
         "finalize",
         help="Build and validate the final deck.",
@@ -599,6 +623,26 @@ PowerPoint, not an editable equation object.
     formula_render.add_argument("--alt", metavar="TEXT", help="Alt text for the formula image in the manifest fragment.")
     formula_render.add_argument("--z-index", type=int, default=220, metavar="N", help="Image z_index in the manifest fragment.")
     formula_render.set_defaults(func=cmd_formula_render_latex)
+
+    page = sub.add_parser(
+        "page",
+        help="Deterministic page text measurement tools.",
+        description="""Text measurement for one page directory.
+
+hints detects text lines on source.png and measures their pixel boxes and
+font sizes. Run it BEFORE writing the page manifest and use its output as
+the reference for text_boxes positions and font sizes.
+""",
+        formatter_class=HELP_FORMATTER,
+        epilog="""Examples:
+  editppt page hints pages/page_001
+  editppt page hints pages/page_001 --min-glyph 8
+""",
+    )
+    page_sub = page.add_subparsers(dest="page_command", metavar="page-command", required=True)
+    page_hints = page_sub.add_parser("hints", help="Measure text line boxes and font sizes from source.png as advisory hints.", add_help=False)
+    page_hints.add_argument("page_args", nargs=argparse.REMAINDER)
+    page_hints.set_defaults(func=lambda args: run_script("text_hints.py", args.page_args))
 
     image = sub.add_parser(
         "image",
@@ -663,7 +707,7 @@ def main() -> int:
 
     parser = build_parser()
     args, extra = parser.parse_known_args()
-    for attr in ("image_args", "process_args", "record_image_args"):
+    for attr in ("image_args", "process_args", "record_image_args", "page_args"):
         if hasattr(args, attr):
             getattr(args, attr).extend(extra)
             extra = []

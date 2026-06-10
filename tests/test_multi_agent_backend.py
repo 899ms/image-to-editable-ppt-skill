@@ -537,7 +537,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             )
             self.assertEqual(0, result.returncode, result.stderr)
             payload = json.loads(result.stdout)
-            self.assertEqual({"fitz", "PIL", "openai", "yaml"}, set(payload["dependencies"]))
+            self.assertEqual({"fitz", "PIL", "openai", "yaml", "numpy", "requests"}, set(payload["dependencies"]))
             self.assertNotIn("skill_root", payload)
             self.assertNotIn("LibreOffice", result.stdout)
             self.assertNotIn("ImageMagick", result.stdout)

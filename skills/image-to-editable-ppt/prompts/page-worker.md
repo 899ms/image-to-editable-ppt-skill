@@ -1,23 +1,24 @@
 # Page Worker Prompt Template
 
+Placeholders of the form `{{NAME}}` are filled by `scripts/build-page-worker-prompt.py`.
+
 ```text
 Rebuild one page for image-to-editable-ppt.
 
-Run dir: <absolute run dir>
-Page id: <page_001>
-Page dir: <absolute page dir>
-Source image: <absolute page dir>/source.png
+Run dir: {{RUN_DIR}}
+Page id: {{PAGE_ID}}
+Page dir: {{PAGE_DIR}}
+Source image: {{SOURCE_IMAGE}}
 
 You own only this Page dir. Do not edit deck_manifest.json, page_jobs.json, notes_manifest.json, final outputs, the original input, or any other page directory.
 
 Read and follow these local references:
-- <skill root>/SKILL.md
-- <skill root>/references/cli-helper.md
-- <skill root>/references/page-decision-tree.md
-- <skill root>/references/manifest-schema.md
-- <skill root>/references/qa-rubric.md
+- {{SKILL_ROOT}}/references/page-decision-tree.md
+- {{SKILL_ROOT}}/references/qa-rubric.md
+- {{SKILL_ROOT}}/references/manifest-schema.md
+- {{SKILL_ROOT}}/references/cli-helper.md
 
-Before any image generation or image editing, use the `editppt image` backend specified by `page_request.json.image_backend`. If `editppt image` is unavailable, first follow the CLI error guidance and try `codex login` or `editppt config`; if it is still unavailable, complete the page using the best currently possible editable structure and record the missing assets and reason in `validation.json`.
+Before any image generation or image editing, use the `editppt image` backend specified by `page_request.json.image_backend`. If `editppt image` is unavailable, first follow the CLI error guidance and try `codex login` or `editppt config`; if it is still unavailable, stop the current page and write `validation.json` with `"passed": false`. Do not complete the page using approximate editable structure when required foreground asset separation cannot run.
 When you need parameter details for the image backend, input images, batch JSONL, clean bases, or asset sheets, read `editppt image --help` and the relevant subcommand help.
 
 The manifest must reuse `page_request.json.slide` and `page_request.json.content_box`. Do not convert the page to 16:9 yourself and do not recalculate the canvas. All `box_px`, `points_px`, and `polygon_px` values are in `source.png` pixels; the runtime maps them into `content_box` so the source image is not stretched.
@@ -32,6 +33,16 @@ Before writing `manifest.json`, every image/page must complete the three-step de
 2. Foreground asset separation: every non-text foreground visual object, including foreground photos, screenshots, illustrations, icons, decorations, and similar assets, must use `editppt image` edit mode for source-faithful asset-sheet separation according to the decision tree.
 3. PPT native element reconstruction: text, text boxes, simple rectangles/rounded rectangles, simple arrows, tables, and similar objects are rebuilt with native PPT structural objects, with font size, corner geometry, and layout calibrated. Formulas do not use native text; first transcribe them to LaTeX, then use `editppt formula render-latex` to render independent image assets into the PPT.
 
+Before building `manifest.json`, verify every non-text visual object:
+
+- It appears in `visual_inventory`.
+- Its source decision follows `page-decision-tree.md`.
+- If it is a foreground photo, screenshot, image block, illustration, icon, pictogram, badge, logo-like mark, sticker, hand-drawn mark, trend/status symbol, or semantic visual object, it was separated through the `editppt image edit --image <source.png>` asset-sheet workflow and then recorded/processed with the image asset commands.
+- It is not a direct crop or source snippet from `source.png`.
+- It is not approximated with native PPT primitives, emoji, text symbols, or substitute drawings.
+
+If any item fails this checklist, fix it before building `page.pptx`. If it cannot be fixed, stop and return a page failure. Do not use deterministic validation as evidence that a forbidden foreground fallback is acceptable.
+
 The Page dir must contain:
 - manifest.json
 - imagegen-jobs.json
@@ -45,7 +56,6 @@ The Page dir must contain:
 
 `page_result.json` must be JSON and must include at least:
 
-```json
 {
   "page_manifest": "manifest.json",
   "imagegen_jobs": "imagegen-jobs.json",
@@ -55,7 +65,6 @@ The Page dir must contain:
   "validation": "validation.json",
   "page_result": "page_result.json"
 }
-```
 
 Use `editppt image generate/edit/batch` to generate clean bases, background repairs, and asset sheets. Use `editppt formula render-latex` to generate formula image assets and manifest image fragments. Which objects must be separated with `editppt image edit --image <source.png>`, which objects may use native shapes, and which formulas must be converted to LaTeX are all governed by `page-decision-tree.md`. Deterministic CLI/runtime tools may only be used for normalization, recording, background removal, splitting, formula rendering, building, validation, and QA.
 
@@ -70,11 +79,12 @@ Use `editppt image generate/edit/batch` to generate clean bases, background repa
   - every non-line `shapes[]` item must include `box_px`;
   - every line shape must include `points_px`.
   Missing object coordinates are a current-page failure, even if a separately generated `page.pptx` looks correct.
-- Text sizing:
-  - make each text `box_px` track the source text bounds plus modest padding, not the entire surrounding card or panel;
-  - start from the deterministic builder's default text fitting instead of an oversized default font;
-  - keep `fit_text` enabled unless a text box has been manually calibrated and must preserve an exact font size;
-  - if the first preview still looks larger than the source, reduce the recorded `font_size` before setting `font_size_calibrated: true`.
+- Text sizing and positions come from measurement, not estimation:
+  - `text_hints.json` and the labeled overlay `text_hints.png` are already in your page dir (written during prepare; the `backend` field says which detector produced them). Read them before writing `text_boxes`; if they are missing, generate them with `editppt page hints {{PAGE_DIR}}`;
+  - copy each matched line's measured `box_px` and font size (`font_pt_if_cjk` for CJK text, `font_pt_if_latin` for Latin) into the text box, and add `"font_size_source": "measured"` to boxes sized this way so the builder keeps the measured size;
+  - hints are ADVISORY and may miss lines: before building, fill every missed text from your own reading of the source and give it the font size of its size_group;
+  - same-level text must use exactly one font size: lines sharing a size_group get the same size, and when assembling the final page keep same-level text identical even where hints disagree slightly;
+  - keep `fit_text` enabled; after the preview, fix any text that looks larger, smaller, or more crowded than the source before setting `font_size_calibrated: true`.
 
 Before returning:
 
@@ -95,7 +105,4 @@ preview=`<absolute path>`
 contact_sheet=`<absolute path>`
 validation=`<absolute path>`
 page_result=`<absolute path>`
-
-```
-
 ```

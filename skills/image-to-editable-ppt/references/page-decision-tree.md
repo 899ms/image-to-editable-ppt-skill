@@ -8,6 +8,12 @@ This file is the single source of truth for page decisions. Every `source.png` m
 
 Do not draw PPT native elements first and then decide background and foreground assets afterward. First define the boundaries between background, foreground, and native structure; then write the manifest.
 
+## Common Failure Mode: False Progress
+
+Do not create a "good enough" editable draft by rebuilding text and layout while cropping or approximating foreground assets. This is false progress: it may pass deterministic validation but it fails the object-source contract.
+
+When a page has complex foreground visuals, first prove the foreground asset workflow is feasible. If it is not feasible, stop with a page failure before building `manifest.json`. Do not convert the missing workflow into a warning, direct source crop, native-shape approximation, emoji/text-symbol substitute, or other fallback.
+
 ## Pre-Decision Checklist
 
 Before the three-step decision process, build a page inventory:
@@ -111,6 +117,8 @@ These objects must not be approximated with native primitives, even if they appe
 
 Do not use direct source-image snippets as a substitute for source-faithful asset-sheet separation.
 
+There is no fallback path for these foreground objects. If asset-sheet separation cannot produce a compliant asset, the current page is blocked until the asset workflow is fixed or the user explicitly changes the requirements for that exact object.
+
 ### 2.2 Asset Sheet Prompt Principles
 
 An asset sheet is source-faithful separation, not redraw. The prompt must require:
@@ -133,7 +141,7 @@ After an asset sheet is generated, reconcile it:
 - Split asset count covers all required objects in `visual_inventory`.
 - Every asset name corresponds to the inventory.
 - Missing objects, wrong symbols, missing strokes, severe deformation, background attachment, text contamination, or synonymous substitution must be regenerated or fixed before use.
-- Minor line width, antialiasing, proportion, shadow, or detail differences may be delivered as warnings with the current PPT.
+- Minor line width, antialiasing, proportion, shadow, or detail differences may be delivered as warnings with the current PPT only after source-faithful asset-sheet separation has succeeded.
 - Approximating a foreground object that must be separated with native primitives is not a warning; it must be changed to source-faithful separation.
 
 ## 3. PPT Native Element Reconstruction
@@ -158,14 +166,20 @@ Exceptions are text that is part of brand or background identity rather than ord
 
 These exceptions should be explained in `visual_inventory` or `asset_provenance`. Do not disguise main titles, subtitles, body text, table text, legends, axis labels, numbers, tags, or button text as exceptions.
 
-Do not guess font sizes from defaults. First estimate from actual source glyph height:
+Do not guess font sizes or positions by eye. `editppt prepare` already distributed the measurements: every page dir contains `text_hints.json` and the labeled overlay `text_hints.png` (the `backend` field records whether the OCR service or the built-in detector produced them). If they are missing, regenerate with:
 
-- Use the same font-size group for the same text level, such as title, subtitle, header, body, label, or status badge.
-- For dense Chinese layouts, the first draft should be 5%-10% smaller than the estimate rather than oversized.
-- When glyph height is close to container height, font size usually needs to be clearly smaller than container height; leave room for PowerPoint/WPS font metrics.
-- Text boxes should be looser than the source glyph bounds to avoid clipping or incorrect wrapping caused by PowerPoint/WPS/preview font metrics.
-- The deterministic builder clamps oversized requested fonts to fit the text box, so keep `fit_text` enabled for first drafts and make `box_px` follow the source text bounds, not the whole container.
-- After building a preview, compare text by level against the source. If title, body, or label text is larger, heavier, more crowded, or wraps more than in the source, reduce font size before continuing.
+```bash
+editppt page hints <page_dir>
+```
+
+The hints contain the detected text lines: `text_hints.json` (each line's source-pixel `box_px`, measured glyph height, and the derived font size for CJK and Latin text) plus `text_hints.png`, the source image with every detected line framed and labeled with its font size. Use them like this:
+
+- Read the overlay image and match each detected line to the text you can read in the source.
+- Copy the measured `box_px` and the matching font size column (`font_pt_if_cjk` for CJK text, `font_pt_if_latin` for Latin) into the corresponding `text_boxes` item.
+- Add `"font_size_source": "measured"` to every box sized from these measurements: the deterministic builder then trusts the measured size instead of applying its conservative shrink, which otherwise makes text systematically smaller than the source.
+- Hints are ADVISORY and incomplete by design. Lines the detector missed, merged with a graphic, or labeled implausibly (a box sitting on an icon or photo) must be filled or corrected by your own reading of the source image before final assembly — a missed hint never means the text can be dropped.
+- Same-level text uses exactly one font size. Lines sharing a `size_group` in the hints are the same level and get the same size; text you add by hand joins the size group of its level. When assembling the final page, keep same-level text identical even where individual measurements disagree slightly.
+- After building a preview, compare text by level against the source. If title, body, or label text is larger, heavier, more crowded, or wraps more than in the source, fix the font size or box before continuing.
 
 The manifest must record completed font-size calibration with `quality_checks.font_size_calibrated=true`.
 
