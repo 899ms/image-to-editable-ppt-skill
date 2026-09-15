@@ -1,5 +1,10 @@
 # Image to Editable PPT Skill 사용 설명서
 
+<video controls playsinline preload="none" width="100%" poster="https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/image-to-editable-ppt-promo-poster.png" aria-label="데모 영상">
+  <source src="https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9" type="video/mp4">
+  <a href="https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9">데모 영상</a>
+</video>
+
 Image to Editable PPT는 이미지, PDF, 이미지 기반 PPT를 **객체 단위로 편집 가능한 PowerPoint**(`.pptx`)로 변환하는 skill입니다. 입력을 페이지별 작업으로 정규화한 다음 `.pptx`로 재구성합니다. 읽을 수 있는 텍스트는 가능한 한 네이티브 텍스트 상자로 복원하고, 단순한 도형은 PowerPoint 도형으로 복원하며, 복잡한 시각 요소는 출처가 기록된 독립 이미지 에셋으로 유지합니다.
 
 ![Image to Editable PPT 프로젝트 개요](https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/image-to-editable-ppt-overview.png)

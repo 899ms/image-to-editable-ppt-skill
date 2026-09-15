@@ -4,6 +4,8 @@
 
 [![문서](https://img.shields.io/badge/%EB%AC%B8%EC%84%9C-%EC%82%AC%EC%9A%A9%20%EC%95%88%EB%82%B4-111827)](https://ningzimu.github.io/image-to-editable-ppt-skill/#/ko/) [![지원](https://img.shields.io/badge/%EC%A7%80%EC%9B%90-%EB%8F%84%EC%9B%80%EB%B0%9B%EA%B8%B0-2CA5E0)](https://t.me/CodexPPT) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
 
+https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9
+
 ![Image to Editable PPT 프로젝트 개요](assets/image-to-editable-ppt-overview.png)
 
 이미지, PDF, 이미지 기반 PPT를 편집 가능한 PowerPoint로 변환하는 skill입니다. 입력을 페이지별 작업으로 정규화한 다음 `.pptx`로 재구성합니다. 읽을 수 있는 텍스트는 가능한 한 네이티브 텍스트 상자로 복원하고, 단순한 도형은 PowerPoint 도형으로 복원하며, 복잡한 시각 요소는 출처가 기록된 독립 이미지 에셋으로 유지합니다.
