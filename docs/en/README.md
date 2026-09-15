@@ -1,5 +1,10 @@
 # Image to Editable PPT Skill Documentation
 
+<video controls playsinline preload="none" width="100%" poster="https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/image-to-editable-ppt-promo-poster.png" aria-label="Demo video">
+  <source src="https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9" type="video/mp4">
+  <a href="https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9">Demo video</a>
+</video>
+
 Image to Editable PPT is a skill that converts images, PDFs, and image-based PowerPoint files into **object-level editable PowerPoint presentations** (`.pptx`). It first normalizes the input into page-level tasks, then rebuilds each page as a `.pptx`: readable text is restored as native text boxes whenever possible, simple geometry is recreated as PowerPoint shapes, and complex visual elements are preserved as separate image assets with source records.
 
 ![Image to Editable PPT overview](https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/image-to-editable-ppt-overview.png)

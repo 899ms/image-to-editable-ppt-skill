@@ -25,6 +25,8 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ### Documentation
 
+- Add the project demo video to the Chinese, English, and Korean READMEs and documentation home pages. (#42)
+
 - Add Codia NoteSlide sponsor cards and links across Chinese, English, and Korean READMEs and documentation homepages. (#37)
 
 ## 0.3.3
