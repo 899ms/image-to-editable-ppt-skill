@@ -4,6 +4,8 @@
 
 [![文档](https://img.shields.io/badge/%E6%96%87%E6%A1%A3-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97-111827)](https://ningzimu.github.io/image-to-editable-ppt-skill/#/) [![支持](https://img.shields.io/badge/%E6%94%AF%E6%8C%81-%E8%8E%B7%E5%8F%96%E5%B8%AE%E5%8A%A9-2CA5E0)](https://t.me/CodexPPT) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
 
+https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9
+
 ![Image to Editable PPT 项目概览](assets/image-to-editable-ppt-overview.png)
 
 一个用于把图片、PDF、图片版PPT 转成可编辑 PowerPoint 的 skill。它先把输入归一化为逐页任务，再重建为 `.pptx`：可读文字尽量恢复为原生文本框，简单几何尽量恢复为 PowerPoint 形状，复杂视觉元素保留为带来源记录的独立图片资产。
