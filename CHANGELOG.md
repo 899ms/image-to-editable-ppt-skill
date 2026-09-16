@@ -6,6 +6,8 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ### Documentation
 
+- Replace the Spire.Presentation sponsor icon with the official e-iceblue logo supplied by the sponsor across all README and documentation languages. (#46)
+
 - Point Spire.Presentation sponsor links to the product page while preserving affiliate ID 420 across all README and documentation languages. (#45)
 
 - Add Spire.Presentation for Python sponsor cards and affiliate links below Codia NoteSlide in the Chinese, English, and Korean READMEs and documentation homepages. (#44)
