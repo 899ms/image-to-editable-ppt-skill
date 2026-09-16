@@ -21,7 +21,7 @@ https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9
 </tr>
 <tr>
 <td width="180" align="center"><img src="assets/spire-presentation-logo.png" alt="Spire.Presentation for Python" width="64"><br><strong>Spire.Presentation for Python</strong></td>
-<td><strong>把生成的可编辑 PPT 进一步自动化处理。</strong>通过 Python 以编程方式编辑、转换并生成 PowerPoint 文件，支持 AI Agent 借助代码直接完成后续文档操作。 <a href="https://www.e-iceblue.com/index.php?aff_id=420"><strong>体验 Spire.Presentation for Python →</strong></a></td>
+<td><strong>把生成的可编辑 PPT 进一步自动化处理。</strong>通过 Python 以编程方式编辑、转换并生成 PowerPoint 文件，支持 AI Agent 借助代码直接完成后续文档操作。 <a href="https://www.e-iceblue.com/Introduce/presentation-for-python.html?aff_id=420"><strong>体验 Spire.Presentation for Python →</strong></a></td>
 </tr>
 </table>
 

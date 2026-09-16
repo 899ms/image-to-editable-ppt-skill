@@ -6,6 +6,8 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ### Documentation
 
+- Point Spire.Presentation sponsor links to the product page while preserving affiliate ID 420 across all README and documentation languages. (#45)
+
 - Add Spire.Presentation for Python sponsor cards and affiliate links below Codia NoteSlide in the Chinese, English, and Korean READMEs and documentation homepages. (#44)
 
 ## 0.4.0
