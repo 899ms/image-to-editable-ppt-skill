@@ -4,6 +4,10 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+### Documentation
+
+- Add Spire.Presentation for Python sponsor cards and affiliate links below Codia NoteSlide in the Chinese, English, and Korean READMEs and documentation homepages. (#44)
+
 ## 0.4.0
 
 ### Features

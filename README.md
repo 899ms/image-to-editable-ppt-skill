@@ -19,6 +19,10 @@ https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9
 <td width="180" align="center"><img src="assets/codia-noteslide-logo.png" alt="Codia NoteSlide" width="64"><br><strong>Codia NoteSlide</strong></td>
 <td><strong>批量图片转 PPT 的高效选择。</strong>大量图片或 PDF 需要转成可编辑 PPT？Codia NoteSlide 提供快速、价格亲民的在线转换服务，适合批量处理。已经订阅 ChatGPT，希望通过 Codex 逐页重建、反复调整文字与布局的用户，可以继续使用本项目。 <a href="https://codia.ai/noteslide/r/12daee802"><strong>体验 Codia NoteSlide →</strong></a></td>
 </tr>
+<tr>
+<td width="180" align="center"><img src="assets/spire-presentation-logo.png" alt="Spire.Presentation for Python" width="64"><br><strong>Spire.Presentation for Python</strong></td>
+<td><strong>把生成的可编辑 PPT 进一步自动化处理。</strong>通过 Python 以编程方式编辑、转换并生成 PowerPoint 文件，支持 AI Agent 借助代码直接完成后续文档操作。 <a href="https://www.e-iceblue.com/index.php?aff_id=420"><strong>体验 Spire.Presentation for Python →</strong></a></td>
+</tr>
 </table>
 
 > [!IMPORTANT]
