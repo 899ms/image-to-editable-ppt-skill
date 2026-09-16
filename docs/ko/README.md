@@ -18,7 +18,7 @@ Image to Editable PPT는 이미지, PDF, 이미지 기반 PPT를 **객체 단위
 </tr>
 <tr>
 <td width="180" align="center"><img src="https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/spire-presentation-logo.png" alt="Spire.Presentation for Python" width="64"><br><strong>Spire.Presentation for Python</strong></td>
-<td><strong>생성된 편집 가능한 PPT를 더욱 자동화해 보세요.</strong> Python을 사용하여 PowerPoint 파일을 프로그래밍 방식으로 편집, 변환 및 생성할 수 있으며, AI Agent가 코드를 통해 후속 문서 작업을 직접 처리할 수 있습니다. <a href="https://www.e-iceblue.com/index.php?aff_id=420"><strong>Spire.Presentation for Python 사용해 보기 →</strong></a></td>
+<td><strong>생성된 편집 가능한 PPT를 더욱 자동화해 보세요.</strong> Python을 사용하여 PowerPoint 파일을 프로그래밍 방식으로 편집, 변환 및 생성할 수 있으며, AI Agent가 코드를 통해 후속 문서 작업을 직접 처리할 수 있습니다. <a href="https://www.e-iceblue.com/Introduce/presentation-for-python.html?aff_id=420"><strong>Spire.Presentation for Python 사용해 보기 →</strong></a></td>
 </tr>
 </table>
 

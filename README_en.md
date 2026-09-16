@@ -21,7 +21,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 </tr>
 <tr>
 <td width="180" align="center"><img src="assets/spire-presentation-logo.png" alt="Spire.Presentation for Python" width="64"><br><strong>Spire.Presentation for Python</strong></td>
-<td><strong>Take your editable PPTs further.</strong> Use Python to edit, convert, and generate PowerPoint files programmatically, enabling AI Agents to handle the next steps directly through code. <a href="https://www.e-iceblue.com/index.php?aff_id=420"><strong>Try Spire.Presentation for Python →</strong></a></td>
+<td><strong>Take your editable PPTs further.</strong> Use Python to edit, convert, and generate PowerPoint files programmatically, enabling AI Agents to handle the next steps directly through code. <a href="https://www.e-iceblue.com/Introduce/presentation-for-python.html?aff_id=420"><strong>Try Spire.Presentation for Python →</strong></a></td>
 </tr>
 </table>
 
