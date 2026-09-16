@@ -19,6 +19,10 @@ It is useful when screenshot-like or image-based slides need to become easier to
 <td width="180" align="center"><img src="assets/codia-noteslide-logo.png" alt="Codia NoteSlide" width="64"><br><strong>Codia NoteSlide</strong></td>
 <td><strong>An efficient choice for bulk image-to-PPT conversion.</strong> Need to convert many images or PDFs into editable PPT files? Codia NoteSlide offers fast, affordable online conversion for batch processing. If you already subscribe to ChatGPT and want to use Codex to rebuild slides individually and iteratively refine text and layouts, you can continue using this project. <a href="https://codia.ai/noteslide/r/12daee802"><strong>Try Codia NoteSlide →</strong></a></td>
 </tr>
+<tr>
+<td width="180" align="center"><img src="assets/spire-presentation-logo.png" alt="Spire.Presentation for Python" width="64"><br><strong>Spire.Presentation for Python</strong></td>
+<td><strong>Take your editable PPTs further.</strong> Use Python to edit, convert, and generate PowerPoint files programmatically, enabling AI Agents to handle the next steps directly through code. <a href="https://www.e-iceblue.com/index.php?aff_id=420"><strong>Try Spire.Presentation for Python →</strong></a></td>
+</tr>
 </table>
 
 > [!IMPORTANT]
